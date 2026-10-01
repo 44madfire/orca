@@ -21,16 +21,16 @@ export function shortPiError(error: unknown): string {
   return sanitizePiError(error)
 }
 
-export function classifyStartupError(error: unknown): string {
+export function classifyStartupError(error: unknown, who = 'Pi'): string {
   const code = (error as { code?: unknown })?.code
   if (code === 'spawn-failed') {
-    return 'Pi executable not found or not runnable (spawn-failed). Install Pi on PATH or set an explicit Pi command.'
+    return `${who} executable not found or not runnable (spawn-failed). Install ${who} on PATH or set an explicit command.`
   }
   if (code === 'startup-failed') {
-    return 'Pi exited during startup (startup-failed). Check auth/model/config.'
+    return `${who} exited during startup (startup-failed). Check auth/model/config.`
   }
   if (code === 'startup-timeout') {
-    return 'Pi did not become ready in time (startup-timeout). Check model/auth and retry.'
+    return `${who} did not become ready in time (startup-timeout). Check model/auth and retry.`
   }
-  return `Pi failed to start (${sanitizePiError(error)})`
+  return `${who} failed to start (${sanitizePiError(error)})`
 }

@@ -10,6 +10,7 @@ import type {
   PiStructuredSessionAdapterDeps
 } from './pi-structured-backend'
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
+import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 import type { StructuredAgentSessionSetOptionInput } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 
 const PI_OPTION_KEYS = new Set(['model', 'thinkingLevel', 'queueMode', 'autoCompaction'])
@@ -68,10 +69,13 @@ export async function setPiSessionOption(
   }
 }
 
-export async function readPiSessionOptions(state: PiStructuredSessionInspectionState, input: {
-  sessionId: string
-  fence: number
-}): Promise<{
+export async function readPiSessionOptions(
+  state: PiStructuredSessionInspectionState,
+  input: {
+    sessionId: string
+    fence: number
+  }
+): Promise<{
   models: {
     id: string
     label: string
@@ -122,6 +126,39 @@ export function readPiOptionRestoreFailures(
   sessionId: string
 ): readonly string[] {
   return [...(failures.get(sessionId) ?? [])]
+}
+
+export function readPiSessionCommands(
+  state: PiStructuredSessionInspectionState,
+  sessionId: string
+): AgentSessionSlashCommand[] | undefined {
+  // Additive read-only surface: undefined keeps the client on its catalog.
+  return state.deps.backend?.readCommands?.({ orcaSessionId: sessionId })
+}
+
+export async function compactPiSession(
+  state: PiStructuredSessionInspectionState,
+  input: {
+    sessionId: string
+    fence: number
+    turnId?: string
+    onLateResult?: (result: { error?: string }) => Promise<void>
+  }
+): Promise<{ error?: string }> {
+  const session = state.live(input.sessionId)
+  if (session.fence !== input.fence || session.closed) {
+    throw new Error('agent_session_checkpoint_stale')
+  }
+  const compact = requireInspectionBackend(state.deps).compact
+  if (!compact) {
+    throw new Error('Pi compaction is unavailable in this build.')
+  }
+  // Pi `compact` is a synchronous provider RPC: success/failure maps
+  // directly, ambiguity throws so the host marks the outcome unknown.
+  // The accepted onLateResult stays unused (no late completion exists).
+  void input.onLateResult
+  void input.turnId
+  return compact({ orcaSessionId: input.sessionId })
 }
 
 export async function readPiResumeHistory(

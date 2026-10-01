@@ -1,45 +1,67 @@
-// First-party Pi RPC session driver (SNC1.9 native Pi).
-//
-// Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
-// Owns Pi event streaming into the journal, exactly-once prompt answers,
-// exact-match options, and wholesale history rebuilds. Journal rows come only
-// from streamed Pi events under stable turn-scoped keys, so finals reconcile
-// rather than duplicate. Failures are actionable `PI_*` errors without paths,
-// prompt text, or bytes.
+// First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
+// Split of the session driver (see `pi-rpc-session-lifecycle.ts`): streams Pi
+// events into the journal under stable turn keys with exactly-once prompts.
+// Failures are actionable `PI_*` errors without paths, text, or bytes.
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
-import { applyPiSessionEvent } from './pi-event-journal'
 import {
-  qualifyPiModelRef,
-  resolvePiModelRef,
-  validatePiThinkingLevel
-} from './pi-session-options'
+  PiFamilyFactTray,
+  extractPiFamilyRecordFact,
+  type PiFamilyPromptFact
+} from './translation/pi-family-record-dialect'
+import { applyPiSessionEvent } from './pi-event-journal'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import { PiFamilyAcquisitionGate } from './pi-family-acquisition-window'
+import { qualifyPiModelRef, resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
 import { shortPiError } from './pi-driver-errors'
 import { rebuildPiHistory } from './pi-rpc-session-resume'
 import { PiRpcSessionTurns } from './pi-rpc-session-turns'
 import type { PiSessionEvent } from './translation/pi-session-events'
+import { PiRpcError } from './rpc/pi-rpc-errors'
+import { PiFamilyCommandCatalog } from './pi-family-commands'
+import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 
 export class PiRpcSessionDriver extends PiRpcSessionTurns {
-  protected synthesizeAbort(opId: string): void {
-    if (this.activeOp !== opId || !this.sink) {
-      return
-    }
-    for (const event of this.translator.applyPiRecord({ type: 'turn_end', stopReason: 'aborted' })) {
-      this.journalEvent(opId, event)
-    }
-    for (const event of this.translator.applyPiRecord({ type: 'agent_settled', willRetry: false })) {
-      this.journalEvent(opId, event)
-    }
-    this.translator.settle()
-    this.activeOp = null
+  private readonly commandCatalog = new PiFamilyCommandCatalog()
+  private familyProvider: PiFamilyProvider = 'pi'
+  private streamGate: PiFamilyAcquisitionGate | null = null
+  private readonly factTray = new PiFamilyFactTray()
+  protected beginAcquisitionWindow(): void {
+    const gate = new PiFamilyAcquisitionGate(this.deps.acquisitionBufferLimits)
+    this.streamGate = gate
+    gate.begin(this.conn, (record) => this.handlePiRecord(record))
   }
 
-  async readResumeHistory(): Promise<{ rows: { id: string; role: string; text: string }[]; leafId: string }> {
+  protected finishAcquisitionWindow(): void {
+    const gate = this.streamGate
+    const conn = this.conn
+    if (!gate || !conn) {
+      return
+    }
+    this.familyProvider = conn.familyProvider
+    gate.finish(conn, this.sink, (record) => this.deliverPiRecord(record))
+  }
+
+  protected teardownAcquisitionState(): void {
+    this.streamGate?.teardown()
+    this.streamGate = null
+  }
+
+  /** Narrow #25 seam: prompt/catalog facts since the last drain. */
+  drainFamilyFacts(): PiFamilyPromptFact[] {
+    return this.factTray.drain()
+  }
+
+  async readResumeHistory(): Promise<{
+    rows: { id: string; role: string; text: string }[]
+    leafId: string
+  }> {
     const conn = this.requireLive()
     const rebuilt = await rebuildPiHistory(conn, {
       timeoutMs: this.optionTimeout,
       busy: this.activeOp !== null,
-      closed: false
+      closed: false,
+      provider: this.familyProvider
     })
     if (!rebuilt.ok) {
       throw new Error(`${rebuilt.code}: ${rebuilt.message}`)
@@ -47,7 +69,11 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     this.leafId = rebuilt.history.leafId
     return {
       leafId: rebuilt.history.leafId,
-      rows: rebuilt.history.rows.map((row) => ({ id: row.id, role: row.role, text: row.text ?? '' }))
+      rows: rebuilt.history.rows.map((row) => ({
+        id: row.id,
+        role: row.role,
+        text: row.text ?? ''
+      }))
     }
   }
 
@@ -70,7 +96,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
         throw new Error(`${resolved.code}: ${resolved.message}`)
       }
       try {
-        const applied = await conn.setModel(resolved.provider, resolved.modelId, { timeoutMs: this.optionTimeout })
+        const applied = await conn.setModel(resolved.provider, resolved.modelId, {
+          timeoutMs: this.optionTimeout
+        })
         const qualified = qualifyPiModelRef(applied) ?? `${resolved.provider}/${resolved.modelId}`
         this.optionsState.model = qualified
         this.optionsState.cachedModels = undefined
@@ -86,7 +114,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       try {
         levels = (await conn.getAvailableThinkingLevels({ timeoutMs: this.optionTimeout })).levels
       } catch (error) {
-        throw new Error(`PI_OPTION_FAILED: thinking-level operations unavailable (${shortPiError(error)})`)
+        throw new Error(
+          `PI_OPTION_FAILED: thinking-level operations unavailable (${shortPiError(error)})`
+        )
       }
       const valid = validatePiThinkingLevel(wanted, levels)
       if (!valid.ok) {
@@ -124,7 +154,27 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     return confirmed
   }
 
-  async readOptions(): Promise<{ options: Record<string, string>; model: string | undefined; thinkingLevel: string | undefined }> {
+  async readOptions(): Promise<{
+    options: Record<string, string>
+    model: string | undefined
+    thinkingLevel: string | undefined
+  }> {
+    // Provider-confirmed state only: never serve optimistic local values.
+    const conn = this.requireLive()
+    let state: Awaited<ReturnType<typeof conn.getState>>
+    try {
+      state = await conn.getState({ timeoutMs: this.optionTimeout })
+    } catch (error) {
+      throw new Error(`PI_STATE_FAILED: option read failed (${shortPiError(error)})`)
+    }
+    const model = qualifyPiModelRef(state.model)
+    this.optionsState.model = model === undefined ? undefined : model
+    if (typeof state.thinkingLevel === 'string') {
+      this.optionsState.thinkingLevel = state.thinkingLevel
+    }
+    if (typeof state.autoCompactionEnabled === 'boolean') {
+      this.autoCompaction = state.autoCompactionEnabled
+    }
     const options: Record<string, string> = {}
     if (this.optionsState.model !== undefined) {
       options['model'] = this.optionsState.model
@@ -138,7 +188,11 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     if (this.autoCompaction !== undefined) {
       options['autoCompaction'] = String(this.autoCompaction)
     }
-    return { options, model: this.optionsState.model, thinkingLevel: this.optionsState.thinkingLevel }
+    return {
+      options,
+      model: this.optionsState.model,
+      thinkingLevel: this.optionsState.thinkingLevel
+    }
   }
 
   async listModels(): Promise<{ id: string; provider: string }[]> {
@@ -152,29 +206,75 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     return [...(await conn.getAvailableThinkingLevels({ timeoutMs: this.optionTimeout })).levels]
   }
 
+  async compact(): Promise<{ error?: string }> {
+    const conn = this.requireLive()
+    try {
+      await conn.compact({ timeoutMs: this.optionTimeout })
+      return {}
+    } catch (error) {
+      // Definite provider refusal maps to {error}; transport ambiguity
+      // throws so the host marks the outcome unknown (never auto-resent).
+      if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
+        const message = shortPiError(error)
+        return { error: message === '' ? 'Compaction was not confirmed by the provider.' : message }
+      }
+      throw error
+    }
+  }
+
+  readCommands(): AgentSessionSlashCommand[] | undefined {
+    return this.commandCatalog.snapshot()
+  }
+
+  async refreshCommands(): Promise<AgentSessionSlashCommand[] | undefined> {
+    return this.commandCatalog.refresh(this.requireLive(), this.optionTimeout)
+  }
+
   protected handlePiRecord(record: Record<string, unknown>): void {
+    if (this.closed || this.closing) {
+      return
+    }
+    this.deliverPiRecord(record)
+  }
+
+  private deliverPiRecord(record: Record<string, unknown>): void {
+    // Steady-state records bypass handlePiRecord; the observer must never throw.
+    this.recordObserver?.(record)
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
+    // OMP catalog pushes refresh here; Pi stays pull-based.
+    this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
+    this.factTray.observe(record)
     if (this.activeOp) {
+      // Late local-only frame, id-correlated to the prompting turn.
+      const fact = extractPiFamilyRecordFact(record)
+      if (fact?.kind === 'prompt-result' && !fact.agentInvoked) {
+        const incoming: unknown = record['id']
+        if (typeof this.activePromptId === 'string' && typeof incoming === 'string' && incoming !== this.activePromptId) {return;}
+        const opId = this.activeOp
+        this.translator.settle()
+        this.activeOp = null
+        this.activePromptId = null
+        this.optionsState.retirePromptsForOp(opId)
+        void this.refreshSessionFile()
+        return
+      }
       let events: PiSessionEvent[]
       try {
-        events = this.translator.applyPiRecord(record)
+        events = this.translator.applyPiRecord(record, this.familyProvider)
       } catch {
         return
       }
       const opId = this.activeOp
       for (const event of events) {
-        if (event.type === 'prompt_request') {
-          this.optionsState.trackPrompt(event.requestId, opId)
-        }
-        if (event.type === 'turn_end') {
-          this.translator.drainTurnEnd()
-        }
+        if (event.type === 'prompt_request') {this.optionsState.trackPrompt(event.requestId, opId);}
+        if (event.type === 'turn_end') {this.translator.drainTurnEnd();}
         if (event.type === 'settled') {
           this.translator.settle()
           if (this.activeOp === opId) {
             this.activeOp = null
+            this.activePromptId = null
           }
           this.optionsState.retirePromptsForOp(opId)
           void this.refreshSessionFile()
@@ -190,9 +290,7 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       return
     }
     for (const event of stateless) {
-      if (event.type !== 'prompt_request') {
-        continue
-      }
+      if (event.type !== 'prompt_request') {continue;}
       const immediate = this.pendingImmediate
       if (immediate && !immediate.acked) {
         immediate.acked = true
@@ -208,7 +306,7 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
 
   protected journalEvent(opId: string, event: PiSessionEvent): void {
     const sink = this.sink
-    if (!sink) {
+    if (!sink || this.closed || this.closing) {
       return
     }
     applyPiSessionEvent({
@@ -217,9 +315,15 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       opId,
       turn: this.turn,
       event,
-      promptTracker: this.promptTracker
+      promptTracker: this.promptTracker,
+      provider: this.familyProvider
     })
   }
 }
 
-export type { PiDriverAcquireInput, PiDriverAcquireResult, PiDriverDispatchResult, PiDriverDeps } from './pi-rpc-session-lifecycle';
+export type {
+  PiDriverAcquireInput,
+  PiDriverAcquireResult,
+  PiDriverDispatchResult,
+  PiDriverDeps
+} from './pi-rpc-session-lifecycle'

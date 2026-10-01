@@ -199,8 +199,11 @@ export async function acquireNativeHandoffOwner(
     spawnToken: input.spawnToken,
     ...(record.options ? { options: record.options } : {}),
     events: eventSink.sink,
-    // Pi resumes by exact session file carried on the durable chain head.
-    ...(head?.handle.provider === 'pi' && head.handle.sessionFile
+    // Pi-family resumes by exact session file carried on the durable chain head.
+    // The file is only ever handed back to the same provider that minted it.
+    ...(head &&
+    (head.handle.provider === 'pi' || head.handle.provider === 'omp') &&
+    head.handle.sessionFile
       ? { resumeSessionFile: head.handle.sessionFile }
       : {})
   })

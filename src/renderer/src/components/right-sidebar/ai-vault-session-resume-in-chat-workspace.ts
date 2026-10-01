@@ -6,7 +6,7 @@ import {
 import { readLocalRuntimeCapabilities } from '@/runtime/local-runtime-capabilities'
 import { useAppStore } from '@/store'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
+import { isStructuredSessionCreatableProvider } from '../../../../shared/agent-session-provider-handle'
 import { STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { resolveAiVaultTargetWorkspacePath } from './ai-vault-session-launch-target'
 import {
@@ -36,7 +36,7 @@ export function resolveAiVaultSessionResumeInChatForWorkspace(args: {
     targetWorkspaceId,
     targetWorkspacePath,
     structuredRouteAvailable:
-      isAgentSessionHandleProvider(args.session.agent) &&
+      isStructuredSessionCreatableProvider(args.session.agent) &&
       targetWorkspaceId !== null &&
       structuredAgentSessionLaunchFeasible(useAppStore.getState(), {
         agent: args.session.agent,

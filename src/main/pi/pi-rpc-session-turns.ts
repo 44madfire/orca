@@ -1,4 +1,4 @@
-// Pi RPC turn dispatch and cancellation (SNC1.9).
+// Pi-family RPC turn dispatch and cancellation (SNC1.9).
 //
 // Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
 // Owns single-turn honesty: at most one live turn; busy dispatches refuse
@@ -13,9 +13,23 @@ import { PiRpcSessionLifecycle, type PiDriverDispatchResult } from './pi-rpc-ses
 import { shortPiError } from './pi-driver-errors'
 
 export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
-  protected abstract synthesizeAbort(opId: string): void;
+  /**
+   * Per-session provider-record observer (PIF-4 dispatch settlement); cleared
+   * with the driver. Must never throw: it runs inline on the record path.
+   */
+  recordObserver: ((record: Record<string, unknown>) => void) | null = null
 
-  protected static readonly catalogLookupTimeoutMs = 3_000;
+  /** Durable history for settlement matching; OMP-native payloads pass through undecoded. */
+  async readHistoryEntries(
+    since?: string
+  ): Promise<{ entries: readonly unknown[]; leafId: string }> {
+    const conn = this.requireLive()
+    const data = await conn.getEntries(since, { timeoutMs: this.optionTimeout })
+    const entries: readonly unknown[] = data.entries
+    return { entries, leafId: data.leafId }
+  }
+
+  protected static readonly catalogLookupTimeoutMs = 3_000
   protected sessionOptions(): Record<string, string> {
     const options: Record<string, string> = {}
     if (this.optionsState.model !== undefined) {
@@ -37,9 +51,14 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
       await this.optionsState.catalog(conn, PiRpcSessionTurns.catalogLookupTimeoutMs)
     }
     const liveSupports =
-      imageCount > 0 ? piModelSupportsImages(this.optionsState.model, this.optionsState.cachedModels) : null
+      imageCount > 0
+        ? piModelSupportsImages(this.optionsState.model, this.optionsState.cachedModels)
+        : null
     if (liveSupports === false) {
-      return { status: 'rejected', reason: `model-rejects-images: ${this.optionsState.model ?? 'unknown-model'}` }
+      return {
+        status: 'rejected',
+        reason: `model-rejects-images: ${this.optionsState.model ?? 'unknown-model'}`
+      }
     }
     const validation = validatePiDispatch(
       { text: input.text, ...(input.images ? { images: input.images } : {}) },
@@ -57,29 +76,64 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     }
     const opId = `pi-turn-${(this.opSeq += 1)}`
     this.activeOp = opId
+    this.activePromptId = null
     this.turn = createPiTurnBuffer()
     try {
-      await conn.prompt(input.text, {
+      const ack = await conn.prompt(input.text, {
         ...(input.images && input.images.length > 0
-          ? { images: input.images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })) }
+          ? {
+              images: input.images.map((image) => ({
+                type: 'image' as const,
+                data: image.data,
+                mimeType: image.mimeType
+              }))
+            }
           : {}),
         ...(this.queueMode === 'steer' || this.queueMode === 'followUp'
-          ? { streamingBehavior: this.queueMode === 'steer' ? ('steer' as const) : ('followUp' as const) }
+          ? {
+              streamingBehavior:
+                this.queueMode === 'steer' ? ('steer' as const) : ('followUp' as const)
+            }
           : {})
       })
+      this.activePromptId = ack.requestId
+      if (!ack.agentInvoked) {
+        // Local-only ack: no agent turn follows, so retire here.
+        if (this.activeOp === opId) {
+          this.translator.settle()
+          this.activeOp = null
+          this.activePromptId = null
+        }
+        this.optionsState.retirePromptsForOp(opId)
+        void this.refreshSessionFile()
+      }
     } catch (error) {
       if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
         this.activeOp = null
-        return { status: 'rejected', reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt' }
+        this.activePromptId = null
+        return {
+          status: 'rejected',
+          reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt'
+        }
       }
-      return { status: 'unknown', reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)' }
+      return {
+        status: 'unknown',
+        reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)'
+      }
     }
     return { status: 'accepted' }
   }
 
-  protected async dispatchImmediate(conn: PiRpcConnection, text: string): Promise<PiDriverDispatchResult> {
+  protected async dispatchImmediate(
+    conn: PiRpcConnection,
+    text: string
+  ): Promise<PiDriverDispatchResult> {
     if (this.activeOp) {
-      return { status: 'rejected', reason: 'already-streaming (immediate / commands need an idle session; wait for idle or cancel)' }
+      return {
+        status: 'rejected',
+        reason:
+          'already-streaming (immediate / commands need an idle session; wait for idle or cancel)'
+      }
     }
     const opId = `pi-immediate-${(this.opSeq += 1)}`
     this.turn = createPiTurnBuffer()
@@ -102,9 +156,15 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
       .then((): PiDriverDispatchResult => ({ status: 'accepted' }))
       .catch((error: unknown): PiDriverDispatchResult => {
         if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
-          return { status: 'rejected', reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt' }
+          return {
+            status: 'rejected',
+            reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt'
+          }
         }
-        return { status: 'unknown', reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)' }
+        return {
+          status: 'unknown',
+          reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)'
+        }
       })
     const raced = await Promise.race([
       prompted,
@@ -116,18 +176,44 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     return raced
   }
 
-  async cancel(): Promise<{ cancelled: boolean }> {
+  /** Adapter-local live turn: the single op owning the provider, if any. */
+  liveTurnId(): string | null {
+    return this.activeOp
+  }
+
+  /** Owning op for one journaled prompt key, or null when it is not answerable. */
+  promptTurnOwner(itemKey: string): { requestId: string; opId: string } | null {
+    const tracked = this.promptTracker.get(itemKey)
+    if (!tracked) {
+      return null
+    }
+    const opId = this.optionsState.pendingPrompts.get(tracked.requestId)
+    return opId === undefined ? null : { requestId: tracked.requestId, opId }
+  }
+
+  /**
+   * Abort exactly the turn named by `expectedTurnId` (PIF-6, #27).
+   * A mismatch — settled, replaced, or never-live — sends no abort and
+   * claims nothing. An abort rejection or transport failure stays
+   * `{ cancelled: false }`: ambiguity is never fabricated into success, and
+   * settlement still arrives through the normal provider frames (#26).
+   */
+  async cancel(expectedTurnId?: string): Promise<{ cancelled: boolean }> {
     const conn = this.conn
     if (!conn || conn.isClosed || !this.activeOp) {
       return { cancelled: false }
     }
+    if (expectedTurnId !== undefined && this.activeOp !== expectedTurnId) {
+      return { cancelled: false }
+    }
     const opId = this.activeOp
-    this.optionsState.retirePromptsForOp(opId)
     try {
       await conn.abort()
     } catch {
-      this.synthesizeAbort(opId)
+      return { cancelled: false }
     }
+    // Confirmed abort only: the provider's own settle frames clear the turn.
+    this.optionsState.retirePromptsForOp(opId)
     return { cancelled: true }
   }
 }

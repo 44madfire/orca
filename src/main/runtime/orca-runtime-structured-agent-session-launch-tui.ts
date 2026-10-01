@@ -18,23 +18,22 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
         !head ||
         (head.handle.provider !== 'codex' &&
           head.handle.provider !== 'claude' &&
-          head.handle.provider !== 'pi')
+          head.handle.provider !== 'pi' &&
+          head.handle.provider !== 'omp')
       ) {
         throw new Error('agent_session_identity_required')
       }
       const provider = head.handle.provider
       const providerSessionId =
-        provider === 'claude'
-          ? head.handle.sessionId
-          : provider === 'pi'
-            ? head.handle.sessionId
-            : head.handle.threadId
-      // Pi resumes by exact session file (`pi --session <file>`); the planner
-      // reads the host-owned locator off the durable chain head and fails
-      // closed when it is missing, so a stale record can never launch a fresh
-      // Pi session masquerading as a resume.
+        provider === 'codex' ? head.handle.threadId : head.handle.sessionId
+      // Pi-family resumes by exact session file (`pi --session <file>`,
+      // `omp --resume <file>`); the planner reads the host-owned locator off
+      // the durable chain head and fails closed when it is missing, so a
+      // stale record can never launch a fresh session masquerading as a resume.
       const piResumeSession =
-        provider === 'pi' ? buildPiTuiResumeProviderSession(record) : null
+        provider === 'pi' || provider === 'omp'
+          ? buildPiTuiResumeProviderSession(record)
+          : null
       const launchStartedAt = Date.now()
       const launched = await this.ensureAgentSession(
         {
@@ -90,8 +89,9 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
                   fence,
                   observedAt: Date.now()
                 })
-              : provider === 'pi'
+              : provider === 'pi' || provider === 'omp'
                 ? piProviderHandleLink({
+                    provider,
                     sessionId: head.handle.sessionId,
                     leafId: head.handle.leafId,
                     resumed: true,
@@ -109,9 +109,9 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
         })
         await onSpawned?.(spawnedOwner)
         await this.waitForTerminal(terminal.handle, { condition: 'tui-idle', timeoutMs: 30000 })
-        // Pi TUI resume is proven by tui-idle + process identity; the Pi session
-        // file stays authoritative and structured resume reads root → leaf, so no
-        // Claude-style transcript proof applies here.
+        // Pi-family TUI resume is proven by tui-idle + process identity; the
+        // provider session file stays authoritative and structured resume
+        // reads root → leaf, so no Claude-style transcript proof applies here.
         const proof =
           provider === 'codex'
             ? await this.waitForAdoptedStructuredTuiProof({
@@ -119,7 +119,7 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
                 threadId: head.handle.threadId,
                 codexHome: record.accountHome.path
               })
-            : provider === 'pi'
+            : provider === 'pi' || provider === 'omp'
               ? {}
               : await this.waitForStructuredClaudeTuiProof({
                   handle: terminal.handle,

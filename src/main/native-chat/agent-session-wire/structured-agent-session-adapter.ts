@@ -266,6 +266,10 @@ export type StructuredAgentSessionAdapter = {
   providerHistoryWindow?(input: {
     identity: AgentSessionJournalIdentity
     accountHome: AgentSessionAccountHome
+    /** Exact same-provider session file from the durable chain head (Pi-family restart sampling). */
+    resumeSessionFile?: string
+    /** Durable branch cursor the journal was built from (Pi-family window anchor). */
+    durableLeafId?: string | null
   }): Promise<ProviderHistoryWindow | null>
   /**
    * Provider-resume history rebuild for handoff reconciliation (Pi session

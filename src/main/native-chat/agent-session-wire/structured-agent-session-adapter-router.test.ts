@@ -291,3 +291,251 @@ describe('StructuredAgentSessionAdapterRouter.closeAll', () => {
     expect(closeSession).not.toHaveBeenCalled()
   })
 })
+
+describe('StructuredAgentSessionAdapterRouter Pi-family routing (pi + omp)', () => {
+  const LOCAL = {
+    executionHostId: 'local',
+    wslDistro: null,
+    workspaceId: 'workspace-1',
+    workspaceKind: 'folder'
+  } as const
+
+  function familyIdentity(sessionId: string, agent: 'pi' | 'omp'): AgentSessionJournalIdentity {
+    return {
+      sessionId,
+      workspaceId: 'workspace-1',
+      hostId: 'local',
+      agent,
+      providerHandle: { kind: 'opaque', agent, value: 'pending' }
+    }
+  }
+
+  function piFamilyAdapter(seen: { acquires: string[] }): StructuredAgentSessionAdapter {
+    const owned = new Set<string>()
+    return {
+      supportsCreate: (_location, agent) => agent === 'pi' || agent === 'omp',
+      supportsLocation: () => true,
+      acquire: async (input) => {
+        seen.acquires.push(`${input.identity.agent}:${input.identity.sessionId}`)
+        const provider = input.identity.agent === 'omp' ? ('omp' as const) : ('pi' as const)
+        owned.add(input.identity.sessionId)
+        return {
+          process: {
+            hostId: 'local',
+            pid: 7,
+            processStartTimeMs: 9,
+            spawnToken: input.spawnToken
+          },
+          link: {
+            linkId: `link-${input.fence}`,
+            handle: {
+              provider,
+              sessionId: `${provider}-ses-1`,
+              leafId: 'leaf-1',
+              sessionFile: `/tmp/${provider}-ses-1.jsonl`
+            },
+            origin: 'created' as const,
+            mintedAtFence: input.fence,
+            observedAt: 1
+          }
+        }
+      },
+      dispatch: async (input) => {
+        if (!owned.has(input.sessionId)) {
+          throw new Error(`no live pi-family session for ${input.sessionId}`)
+        }
+        return { state: 'unknown', reason: 'test' }
+      },
+      cancelTurn: async () => ({ cancelled: false }),
+      answerPrompt: async () => undefined,
+      setOption: async () => undefined,
+      closeSession: async (sessionId) => owned.delete(sessionId)
+    }
+  }
+
+  it('selects the same installed adapter for pi and omp with the discriminant unchanged', async () => {
+    const seen: { acquires: string[] } = { acquires: [] }
+    const family = piFamilyAdapter(seen)
+    const router = new StructuredAgentSessionAdapterRouter(
+      {
+        claude: adapterOf(vi.fn(async () => false)),
+        codex: adapterOf(vi.fn(async () => false)),
+        pi: family
+      },
+      async () => {}
+    )
+    expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(true)
+
+    const piAcquired = await router.acquire({
+      identity: familyIdentity('session-pi', 'pi'),
+      fence: 1,
+      spawnToken: 'spawn-pi'
+    })
+    const ompAcquired = await router.acquire({
+      identity: familyIdentity('session-omp', 'omp'),
+      fence: 2,
+      spawnToken: 'spawn-omp'
+    })
+    // Acquisition routes the durable provider discriminant unchanged to one adapter.
+    expect(seen.acquires).toEqual(['pi:session-pi', 'omp:session-omp'])
+    expect(piAcquired.link.handle).toMatchObject({ provider: 'pi' })
+    expect(ompAcquired.link.handle).toMatchObject({ provider: 'omp' })
+    // Live per-session operations route to the adapter that owns the acquisition.
+    await expect(
+      router.dispatch({
+        sessionId: 'session-pi',
+        clientMessageId: 'client-1',
+        body: { kind: 'message', role: 'user', blocks: [] },
+        fence: 1
+      })
+    ).resolves.toMatchObject({ state: 'unknown' })
+    await expect(
+      router.dispatch({
+        sessionId: 'session-omp',
+        clientMessageId: 'client-2',
+        body: { kind: 'message', role: 'user', blocks: [] },
+        fence: 2
+      })
+    ).resolves.toMatchObject({ state: 'unknown' })
+  })
+
+  it('serves both discriminants from whichever key holds the shared adapter', async () => {
+    const seen: { acquires: string[] } = { acquires: [] }
+    const router = new StructuredAgentSessionAdapterRouter(
+      {
+        claude: adapterOf(vi.fn(async () => false)),
+        codex: adapterOf(vi.fn(async () => false)),
+        omp: piFamilyAdapter(seen)
+      },
+      async () => {}
+    )
+    expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(true)
+    await router.acquire({
+      identity: familyIdentity('session-pi', 'pi'),
+      fence: 1,
+      spawnToken: 's1'
+    })
+    await router.acquire({
+      identity: familyIdentity('session-omp', 'omp'),
+      fence: 2,
+      spawnToken: 's2'
+    })
+    expect(seen.acquires).toEqual(['pi:session-pi', 'omp:session-omp'])
+  })
+
+  it('fails closed for both providers when no Pi-family adapter is installed', async () => {
+    const router = new StructuredAgentSessionAdapterRouter(
+      { claude: adapterOf(vi.fn(async () => false)), codex: adapterOf(vi.fn(async () => false)) },
+      async () => {}
+    )
+    expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(false)
+    expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(false)
+    await expect(
+      router.acquire({ identity: familyIdentity('session-pi', 'pi'), fence: 1, spawnToken: 's1' })
+    ).rejects.toThrow('structured sessions do not support pi')
+    await expect(
+      router.acquire({ identity: familyIdentity('session-omp', 'omp'), fence: 2, spawnToken: 's2' })
+    ).rejects.toThrow('structured sessions do not support omp')
+  })
+
+  it('never falls through to external for pi or omp', async () => {
+    const externalAcquire = vi.fn(async ({ fence, spawnToken }) => acquisition(fence, spawnToken))
+    const external = adapterOf(vi.fn(async () => false))
+    external.acquire = externalAcquire
+    const seen: { acquires: string[] } = { acquires: [] }
+    const router = new StructuredAgentSessionAdapterRouter(
+      {
+        claude: adapterOf(vi.fn(async () => false)),
+        codex: adapterOf(vi.fn(async () => false)),
+        external,
+        pi: piFamilyAdapter(seen)
+      },
+      async () => {}
+    )
+    await router.acquire({
+      identity: familyIdentity('session-pi', 'pi'),
+      fence: 1,
+      spawnToken: 's1'
+    })
+    await router.acquire({
+      identity: familyIdentity('session-omp', 'omp'),
+      fence: 2,
+      spawnToken: 's2'
+    })
+    expect(externalAcquire).not.toHaveBeenCalled()
+    expect(seen.acquires).toEqual(['pi:session-pi', 'omp:session-omp'])
+
+    const withoutFamily = new StructuredAgentSessionAdapterRouter(
+      {
+        claude: adapterOf(vi.fn(async () => false)),
+        codex: adapterOf(vi.fn(async () => false)),
+        external
+      },
+      async () => {}
+    )
+    await expect(
+      withoutFamily.acquire({
+        identity: familyIdentity('session-pi', 'pi'),
+        fence: 1,
+        spawnToken: 's1'
+      })
+    ).rejects.toThrow('structured sessions do not support pi')
+    await expect(
+      withoutFamily.acquire({
+        identity: familyIdentity('session-omp', 'omp'),
+        fence: 2,
+        spawnToken: 's2'
+      })
+    ).rejects.toThrow('structured sessions do not support omp')
+    expect(externalAcquire).not.toHaveBeenCalled()
+  })
+
+  it('leaves Claude/Codex routing on their own adapters', async () => {
+    const seen: { acquires: string[] } = { acquires: [] }
+    const claudeAcquire = vi.fn(async ({ fence, spawnToken }) => acquisition(fence, spawnToken))
+    const codexAcquire = vi.fn(async ({ fence, spawnToken }) => acquisition(fence, spawnToken))
+    const claude = adapterOf(vi.fn(async () => false))
+    claude.acquire = claudeAcquire
+    const codex = adapterOf(vi.fn(async () => false))
+    codex.acquire = codexAcquire
+    const router = new StructuredAgentSessionAdapterRouter(
+      { claude, codex, pi: piFamilyAdapter(seen) },
+      async () => {}
+    )
+    await router.acquire({ identity: claudeIdentity('session-claude'), fence: 1, spawnToken: 's1' })
+    await router.acquire({
+      identity: { ...claudeIdentity('session-codex'), agent: 'codex' },
+      fence: 2,
+      spawnToken: 's2'
+    })
+    expect(claudeAcquire).toHaveBeenCalledOnce()
+    expect(codexAcquire).toHaveBeenCalledOnce()
+    expect(seen.acquires).toEqual([])
+  })
+
+  it('keeps stop semantics on Pi-family routes: no route fabricates a close', async () => {
+    const seen: { acquires: string[] } = { acquires: [] }
+    const router = new StructuredAgentSessionAdapterRouter(
+      {
+        claude: adapterOf(vi.fn(async () => false)),
+        codex: adapterOf(vi.fn(async () => false)),
+        pi: piFamilyAdapter(seen)
+      },
+      async () => {}
+    )
+    await router.acquire({
+      identity: familyIdentity('session-omp', 'omp'),
+      fence: 2,
+      spawnToken: 's2'
+    })
+
+    await expect(router.closeSession('never-routed')).resolves.toBe(false)
+    await expect(router.closeSession('session-omp')).resolves.toBe(true)
+    await expect(router.closeSession('session-omp')).resolves.toBe(true)
+    router.acknowledgeSessionRelease('session-omp')
+    await expect(router.closeSession('session-omp')).resolves.toBe(false)
+  })
+})
+

@@ -20,6 +20,7 @@ import type {
   PiResponse,
   PiServerEvent,
 } from "./pi-wire-protocol";
+import type { PiFamilyReadyInfo } from "./pi-family-rpc-types";
 import type { SpawnedProcess } from "../../../shared/child-process/process-spec";
 
 export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
@@ -51,6 +52,14 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
   }
 
 
+  /** Subscribe to the OMP `ready` advertisement (once per connection). */
+  onReady(handler: PiRpcEventHandler<PiFamilyReadyInfo>): () => void {
+    this.readyHandlers.add(handler);
+    return () => {
+      this.readyHandlers.delete(handler);
+    };
+  }
+
   /** Subscribe to malformed stdout lines (framing diagnostics). */
   onMalformedLine(
     handler: PiRpcEventHandler<{ linePreview: string; count: number }>,
@@ -77,6 +86,7 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
     this.responseHandlers.clear();
     this.extensionUiHandlers.clear();
     this.malformedHandlers.clear();
+    this.readyHandlers.clear();
     this.exitHandlers.clear();
   }
 
@@ -221,40 +231,6 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
         `failed to write raw bytes: ${(error as Error).message}`,
       );
     }
-  }
-
-
-  /**
-   * Resolve when the next `agent_settled` event arrives. Always waits for a
-   * *new* settle after invocation (callers tracking turns should snapshot
-   * counts first). Rejects on timeout, exit, or close.
-   */
-  waitForSettled(timeoutMs?: number): Promise<void> {
-    if (this.closed) {
-      return Promise.reject(
-        new PiRpcError({ code: "transport-closed", ambiguous: false }, "transport is closed"),
-      );
-    }
-    const deadline = timeoutMs ?? this.defaultTimeoutMs;
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const idx = this.settledWaiters.findIndex((w) => w.resolve === resolve);
-        if (idx !== -1) {this.settledWaiters.splice(idx, 1);}
-        reject(
-          new PiRpcError(
-            {
-              code: "request-timeout",
-              command: "waitForSettled",
-              ambiguous: false,
-              timeoutMs: deadline,
-            },
-            `timed out after ${deadline}ms waiting for agent_settled`,
-          ),
-        );
-      }, deadline);
-      (timer as unknown as { unref?: () => void }).unref?.();
-      this.settledWaiters.push({ resolve, reject, timer });
-    });
   }
 
   // -------------------------------------------------------------------------

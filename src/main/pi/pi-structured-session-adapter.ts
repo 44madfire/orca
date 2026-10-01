@@ -1,29 +1,42 @@
-// Native Pi structured-session adapter (SNC1.9 Orca-side).
+// Pi-family structured-session adapter (SNC1.9 Orca-side).
 //
-// Owns capability gates, fence-checked dispatch, proven exit, exact Pi
+// Owns capability gates, fence-checked dispatch, proven exit, exact Pi-family
 // session/leaf identity, and explicit recoverable failures over the production
-// Pi RPC backend (`pi-rpc-backend`: one `pi --mode rpc` child per session).
+// Pi-family RPC backend (`pi-rpc-backend`: one `pi --mode rpc` or `omp --mode rpc`
+// child per session, selected by the durable discriminant).
 // Never fabricates a clean exit or auto-resends. Without a backend (tests
 // that never install one) acquire fails closed with
-// `PI_STRUCTURED_UNAVAILABLE` so callers fall back to ordinary Pi TUI.
+// `PI_STRUCTURED_UNAVAILABLE` so callers fall back to the ordinary provider TUI.
 
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
-import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
+import type { PiFamilySettledEvent } from './pi-family-flavor'
 import {
-  AgentSessionAcquisitionExitUnprovenError,
-  AgentSessionAcquisitionRootExitObservedError,
-  type AgentSessionDispatchOutcome,
-  type StructuredAgentSessionAcquireInput,
-  type StructuredAgentSessionAdapter,
-  type StructuredAgentSessionLifecycleEvent,
-  type StructuredAgentSessionSetOptionInput
+  interpretOmpPromptResult,
+  readPiFamilyDispatchCursor,
+  sanitizePiFamilyPromptError,
+  settlePiFamilySessionFromHistory,
+  translatePiFamilyPromptBody,
+  type PiFamilyHistorySnapshot,
+  type PiFamilyLateSettlement
+} from './pi-family-dispatch'
+import { PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
+import { readPiFamilyProviderHistoryWindow } from './pi-family-history-window'
+import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
+import type {
+  AgentSessionDispatchOutcome,
+  StructuredAgentSessionAcquireInput,
+  StructuredAgentSessionAdapter,
+  StructuredAgentSessionLifecycleEvent,
+  StructuredAgentSessionSetOptionInput
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { supportsPiStructuredLocation } from './pi-structured-location-support'
-import { PiRootExitObservedError } from './pi-process-teardown'
+import { closePiStructuredSession } from './pi-structured-session-close'
+import { PiFamilyPromptClaims, answerPiFamilyPrompt } from './pi-family-prompt-answers'
+import { cancelPiFamilyTurn } from './pi-family-turn-cancellation'
 import type {
   PiSession,
   PiStructuredBackend,
@@ -32,9 +45,11 @@ import type {
 } from './pi-structured-backend'
 import { acquirePiStructuredSession } from './pi-structured-session-acquire'
 import {
+  compactPiSession,
   readPiHistoryFilePath,
   readPiOptionRestoreFailures,
   readPiResumeHistory,
+  readPiSessionCommands,
   readPiSessionOptions,
   setPiSessionOption,
   type PiStructuredSessionInspectionState
@@ -46,6 +61,11 @@ export type { PiStructuredBackend, PiStructuredSessionAdapterDeps } from './pi-s
 export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter {
   private readonly sessions = new Map<string, PiSession>()
   private readonly optionRestoreFailures = new Map<string, Set<string>>()
+  // Admitted submissions awaiting history-backed settlement (ephemeral; the journal stays authoritative).
+  private readonly dispatches = new PiFamilyDispatchTracker()
+  // Ephemeral prompt-operation claims (answer vs prompt-bound cancel); the
+  // journal stays authoritative and driver callbacks stay provider-scoped.
+  private readonly promptClaims = new PiFamilyPromptClaims()
 
   constructor(private readonly deps: PiStructuredSessionAdapterDeps) {}
 
@@ -59,7 +79,9 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   }
 
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean => {
-    if (agent !== 'pi') {
+    // One Pi-family adapter owns both discriminants; capability stays adapter-driven so
+    // neither provider is ever globally supported merely because the handle type exists.
+    if (agent !== 'pi' && agent !== 'omp') {
       return false
     }
     return supportsPiStructuredLocation(location)
@@ -67,6 +89,30 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
 
   supportsLocation = (location: AgentSessionExecutionLocation): boolean =>
     supportsPiStructuredLocation(location)
+
+  /**
+   * Final-settle predicate for one live child (PIF-3, #24; consumed by later issues).
+   * A generation that no longer owns the session cannot settle anything: stale
+   * lifecycle events from a superseded child answer false instead of leaking
+   * through the replacement's predicate.
+   */
+  isSettledEvent = (input: {
+    sessionId: string
+    event: PiFamilySettledEvent
+    acquisitionGeneration?: string
+  }): boolean => {
+    const session = this.sessions.get(input.sessionId)
+    if (!session || session.closed) {
+      return false
+    }
+    if (
+      input.acquisitionGeneration !== undefined &&
+      input.acquisitionGeneration !== session.generation
+    ) {
+      return false
+    }
+    return session.isSettledEvent(input.event)
+  }
 
   /** Backend exit callback: publish the lifecycle event the host recovers from. */
   publishUnexpectedExit = (orcaSessionId: string): void => {
@@ -90,12 +136,41 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   }
 
   async acquire(input: StructuredAgentSessionAcquireInput) {
-    return acquirePiStructuredSession({
+    const acquired = await acquirePiStructuredSession({
       deps: this.deps,
       sessions: this.sessions,
       backend: this.requireBackend(),
-      input
+      input,
+      onProviderRecord: (record) => this.handleProviderRecord(input.identity.sessionId, record)
     })
+    // Fresh correlation epoch: superseded pending belongs to the journal/#29 now, never to the new child.
+    this.dispatches.dropSession(input.identity.sessionId)
+    return acquired
+  }
+
+  /** Provider record observer bound at acquire; a superseded child cannot settle replacement state. */
+  handleProviderRecord = (sessionId: string, record: Record<string, unknown>): void => {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.closed) {
+      return
+    }
+    if (record['type'] === 'prompt_result') {
+      // OMP dialect, normalized adapter-local: a locally-completed prompt retires without an agent turn.
+      if (interpretOmpPromptResult(record) !== 'local-only') {
+        return
+      }
+      void this.settleSession(session).catch(() => undefined)
+      return
+    }
+    // Records are untrusted wire payloads; the settle predicate reads only its narrow shape.
+    const settledCandidate: PiFamilySettledEvent = {
+      ...record,
+      type: typeof record['type'] === 'string' ? record['type'] : ''
+    }
+    if (!session.isSettledEvent(settledCandidate)) {
+      return
+    }
+    void this.settleSession(session).catch(() => undefined)
   }
 
   async releaseAcquisition(input: { sessionId: string }): Promise<boolean> {
@@ -112,44 +187,78 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     if (session.fence !== input.fence) {
       return { state: 'rejected', reason: 'agent_session_checkpoint_stale' }
     }
+    // Translate before any RPC write: an unrepresentable body never reaches the provider.
+    try {
+      await translatePiFamilyPromptBody(input.body)
+    } catch (error) {
+      return { state: 'rejected', reason: sanitizePiFamilyPromptError(error) }
+    }
+    // Cursor before the write; a failed read degrades to unknown (fail closed, never blocks admission).
+    const preDispatch = await readPiFamilyDispatchCursor(this.deps.backend, input.sessionId)
+    // Settle provable older pendings before arming, reusing the pre-read history (no extra RPC).
+    await this.settleSession(session, preDispatch.history).catch(() => undefined)
+    // Armed before the write (Codex ordering): a boundary frame landing in the
+    // same stdout read as the ack is observed with correlation already present.
+    this.dispatches.arm(input.sessionId, {
+      clientMessageId: input.clientMessageId,
+      provider: session.provider,
+      generation: session.generation,
+      cursor: preDispatch.cursor
+    })
     let result: PiStructuredDispatchResult
     try {
-      result = await this.requireBackend().dispatch({ orcaSessionId: input.sessionId, body: input.body })
+      result = await this.requireBackend().dispatch({
+        orcaSessionId: input.sessionId,
+        body: input.body
+      })
     } catch (error) {
-      // Unsettled dispatch stays `unknown`; the caller reconciles via history.
+      // Transport failure keeps correlation armed (the write may have landed); reconcile via history, never resend.
+      void this.settleSession(session).catch(() => undefined)
       return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
     }
-    if (result.status === 'accepted') {
-      return {
-        state: 'accepted',
-        providerIdentity: {
-          provider: 'legacy',
-          agent: 'pi',
-          sessionId: session.piSessionId,
-          recordId: input.clientMessageId
-        }
-      }
-    }
     if (result.status === 'rejected') {
+      // Definite refusal: the provider declined, so no boundary for this write can arrive.
+      this.dispatches.disarm(input.sessionId, input.clientMessageId, session.generation)
       return { state: 'rejected', reason: result.reason }
     }
-    return { state: 'unknown', reason: result.reason }
+    // A boundary that already arrived settles now instead of being lost.
+    void this.settleSession(session).catch(() => undefined)
+    if (result.status === 'unknown') {
+      return { state: 'unknown', reason: result.reason }
+    }
+    // Prompt acknowledged means admitted, never accepted: identity settles later from history.
+    return { state: 'admitted' }
   }
 
-  async cancelTurn(input: {
-    sessionId: string
-    turnId: string
-    fence: number
-  }): Promise<{ cancelled: boolean }> {
-    const session = this.sessions.get(input.sessionId)
-    if (!session || session.closed || session.fence !== input.fence) {
-      return { cancelled: false }
-    }
-    try {
-      return await this.requireBackend().cancel({ orcaSessionId: input.sessionId })
-    } catch {
-      return { cancelled: false }
-    }
+  private settleSession(
+    session: PiSession,
+    preRead?: PiFamilyHistorySnapshot | null
+  ): Promise<void> {
+    return settlePiFamilySessionFromHistory({
+      sessions: this.sessions,
+      tracker: this.dispatches,
+      backend: this.deps.backend,
+      onSettled: this.settlementSink(),
+      session,
+      preRead
+    })
+  }
+
+  private settlementSink(): PiFamilyLateSettlement | undefined {
+    return this.deps.onDispatchSettledLate
+      ? (settlement) => this.deps.onDispatchSettledLate?.(settlement)
+      : undefined
+  }
+
+  async cancelTurn(
+    input: Parameters<StructuredAgentSessionAdapter['cancelTurn']>[0]
+  ): Promise<{ cancelled: boolean }> {
+    return cancelPiFamilyTurn({
+      sessions: this.sessions,
+      backend: this.requireBackend(),
+      claims: this.promptClaims,
+      input
+    })
   }
 
   rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = () => ({
@@ -157,27 +266,17 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     reason: 'unsupported'
   })
 
-  async answerPrompt(input: {
-    sessionId: string
-    itemId: string
-    kind: 'approval' | 'question'
-    optionId: string
-    fence: number
-  }): Promise<void> {
-    const session = this.requireLive(input.sessionId)
-    if (session.fence !== input.fence) {
-      throw new Error('agent_session_checkpoint_stale')
-    }
+  async answerPrompt(
+    input: Parameters<StructuredAgentSessionAdapter['answerPrompt']>[0]
+  ): Promise<void> {
     // `itemId` is the journal item key the driver journaled the dialog under;
-    // the backend routes it to the owning driver exactly once.
-    const answer = this.requireBackend().answerPrompt
-    if (!answer) {
-      throw new Error('Pi prompts are unavailable in this build.')
-    }
-    await answer({
-      itemKey: input.itemId,
-      kind: input.kind,
-      optionId: input.optionId
+    // ownership (claim, host commit, single provider response) lives in the
+    // shared prompt-answers helper so cancels race it through one claim.
+    return answerPiFamilyPrompt({
+      sessions: this.sessions,
+      backend: this.requireBackend(),
+      claims: this.promptClaims,
+      input
     })
   }
 
@@ -188,11 +287,24 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   readOptions = (input: { sessionId: string; fence: number }) =>
     readPiSessionOptions(this.inspectionState(), input)
 
+  readCommands = (sessionId: string) => readPiSessionCommands(this.inspectionState(), sessionId)
+
+  compact = (input: {
+    turnId: string
+    sessionId: string
+    fence: number
+    onLateResult?: (result: { error?: string }) => Promise<void>
+  }) => compactPiSession(this.inspectionState(), input)
+
   readOptionRestoreFailures = (sessionId: string): readonly string[] =>
     readPiOptionRestoreFailures(this.optionRestoreFailures, sessionId)
 
   readResumeHistory = (input: { sessionId: string; fence: number }) =>
     readPiResumeHistory(this.inspectionState(), input)
+
+  providerHistoryWindow: NonNullable<StructuredAgentSessionAdapter['providerHistoryWindow']> = (
+    input
+  ) => readPiFamilyProviderHistoryWindow({ sessions: this.sessions, deps: this.deps }, input)
 
   historyFilePath = (input: { identity: AgentSessionJournalIdentity }): Promise<string | null> =>
     readPiHistoryFilePath(this.inspectionState(), input)
@@ -214,36 +326,15 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     })
   }
 
-  private async close(sessionId: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      return true
-    }
-    if (session.closed) {
-      this.sessions.delete(sessionId)
-      return true
-    }
-    const backend = this.deps.backend
-    if (!backend) {
-      // No transport means no child exists; drop without claiming proven exit.
-      this.sessions.delete(sessionId)
-      return true
-    }
-    let proven = false
-    try {
-      proven = (await backend.close({ orcaSessionId: sessionId })) === true
-    } catch (error) {
-      if (error instanceof PiRootExitObservedError) {
-        throw new AgentSessionAcquisitionRootExitObservedError(error)
-      }
-      throw new AgentSessionAcquisitionExitUnprovenError(error)
-    }
-    if (proven !== true) {
-      return false
-    }
-    session.closed = true
-    this.sessions.delete(sessionId)
-    return true
+  private close(sessionId: string): Promise<boolean> {
+    // Ephemeral prompt claims die with the session; the journal stays authoritative.
+    this.promptClaims.dropSession(sessionId)
+    return closePiStructuredSession({
+      sessions: this.sessions,
+      backend: this.deps.backend,
+      dispatches: this.dispatches,
+      sessionId
+    })
   }
 
   private requireLive(sessionId: string): PiSession {

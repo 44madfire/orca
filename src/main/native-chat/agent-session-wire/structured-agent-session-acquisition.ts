@@ -10,16 +10,7 @@ import { journalIdentityFor } from './structured-agent-session-attach'
 import type { AttachFlowInput } from './structured-agent-session-attach-flow'
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { withAgentSessionCreatePhase } from '../../observability/agent-session-instrumentation'
-import { agentSessionProviderHandleChainHead } from '../../../shared/agent-session-provider-handle'
-
-/** Exact Pi resume locator from the durable chain head, if the adapter persisted one. */
-function piResumeSessionFile(record: AgentSessionRecord): string | undefined {
-  const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
-  if (head?.handle.provider === 'pi' && head.handle.sessionFile) {
-    return head.handle.sessionFile
-  }
-  return undefined
-}
+import { piFamilyDurableResumeTarget } from '../../pi/pi-structured-owner-identity'
 
 /** A reservation with no process behind it is only a promise to spawn; the
  * adapter makes it real and the store then grants the writer. */
@@ -34,6 +25,7 @@ export async function acquireOwner(
     throw new Error('agent_session_ownership_unknown')
   }
   // Pre-spawn proof is single-use: this retry may create a child after the durable clear.
+  const resumeSessionFile = piFamilyDurableResumeTarget(record)?.sessionFile
   try {
     try {
       record = await input.store.setReservationProcesslessProof({
@@ -56,9 +48,9 @@ export async function acquireOwner(
       ...(record.options ? { options: record.options } : {}),
       ...(input.eventSink ? { events: input.eventSink } : {}),
       ...(input.recordPhase ? { recordPhase: input.recordPhase } : {}),
-      // Pi resumes by exact session file carried on the durable chain head;
+      // Pi-family resumes by exact session file carried on the durable chain head;
       // other providers ignore this locator.
-      ...(piResumeSessionFile(record) ? { resumeSessionFile: piResumeSessionFile(record) as string } : {})
+      ...(resumeSessionFile ? { resumeSessionFile } : {})
     })
     const options = await withAgentSessionCreatePhase('restore_options', input.recordPhase, () =>
       readNativeSessionOptions({

@@ -52,7 +52,7 @@ describe('the settings default', () => {
 })
 
 describe('per-launch structured feasibility', () => {
-  it.each(['claude', 'codex'] as const)('supports a local %s launch', (agent) => {
+  it.each(['claude', 'codex', 'pi', 'omp'] as const)('supports a local %s launch', (agent) => {
     expect(support({ agent })).toEqual({ supported: true })
   })
 

@@ -1,13 +1,13 @@
-// Pi RPC session lifecycle: acquire, close, and session-file tracking (SNC1.9).
+// Pi-family RPC session lifecycle: acquire, close, and session-file tracking (SNC1.9).
 //
 // Mechanical split of `pi-rpc-session-driver.ts` (protected-subclass chain,
 // one class per file) so each file meets the line budget. Turn dispatch and
 // streaming/options live in `pi-rpc-session-turns` and `pi-rpc-session-driver`.
 
-// First-party Pi RPC session driver (SNC1.9 native Pi).
+// First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
 //
-// Owns one `pi --mode rpc` child per Orca structured session over the vendored
-// transport (`./rpc`), with Pi semantics following the proven orca-pi
+// Owns one selected provider RPC child per Orca structured session over the
+// Orca-owned transport (`./rpc`), with Pi-family semantics following the proven orca-pi
 // `PiBridgeProvider` flows as reference: exact-cwd spawn, `get_state` lease
 // identity, typed `switch_session` resume with header CWD validation,
 // single-turn dispatch honesty, translator-driven streaming, exactly-once
@@ -22,37 +22,27 @@
 
 import { isAbsolute } from 'node:path'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
-import { PiRpcConnection } from './rpc/pi-rpc-connection'
+import { PiFamilyRpcConnection, type PiFamilyProvider } from './rpc/pi-family-rpc-connection'
 import { PiRpcError } from './rpc/pi-rpc-errors'
 import { resolvePiRpcEnv, toPiRpcProcessSpec } from './rpc/pi-rpc-launch'
 import type { PiState } from './rpc/pi-wire-protocol'
 import { spawnProcess } from '../../shared/child-process/run-process'
 import type { SpawnedProcess } from '../../shared/child-process/process-spec'
 import { PiTranslator } from './translation/pi-turn-translator'
-import { rebuildPiHistory, resumePiSession } from './pi-rpc-session-resume'
+import type { PiFamilyAcquisitionBufferLimits } from './pi-family-acquisition-window'
+import { argsForOptions, resolvePiFamilyLaunchCommand } from './pi-family-flavor'
+import { rebuildPiHistory, resumePiFamilySession } from './pi-rpc-session-resume'
 import { createPiTurnBuffer } from './pi-event-journal'
 import { PiSessionOptionState, qualifyPiModelRef } from './pi-session-options'
 import { isPiPidAbsent, PiRootExitObservedError, terminatePiProcessTree } from './pi-process-teardown'
 import { PI_SPAWN_TOKEN_ENV } from './pi-structured-owner-identity'
 import { classifyStartupError, shortPiError } from './pi-driver-errors'
 
-function argsForOptions(
-  options: Readonly<Record<string, string>> | undefined,
-  baseArgs: readonly string[]
-): string[] {
-  const extra: string[] = []
-  if (options?.['model'] && !baseArgs.includes('--model')) {
-    extra.push('--model', options['model'])
-  }
-  if (options?.['thinkingLevel'] && !baseArgs.includes('--thinking')) {
-    extra.push('--thinking', options['thinkingLevel'])
-  }
-  return extra
-}
-
 export type PiDriverAcquireInput = {
   orcaSessionId: string
   workspaceRoot: string
+  /** Durable discriminant; selects the executable and the resume dialect. */
+  provider?: PiFamilyProvider
   resumeSessionFile?: string
   resumePiSessionId?: string | null
   options?: Readonly<Record<string, string>>
@@ -78,6 +68,8 @@ export type PiDriverDispatchResult =
 export type PiDriverDeps = {
   piCommand?: string
   piArgs?: readonly string[]
+  ompCommand?: string
+  ompArgs?: readonly string[]
   piEnv?: NodeJS.ProcessEnv
   resolveEnv?: () => Promise<NodeJS.ProcessEnv> | NodeJS.ProcessEnv
   spawnImpl?: typeof spawnProcess
@@ -86,6 +78,8 @@ export type PiDriverDeps = {
   optionTimeoutMs?: number
   closeGraceMs?: number
   onUnexpectedExit?: (orcaSessionId: string) => void
+  /** Test-only bound override for the pre-publication acquisition window. */
+  acquisitionBufferLimits?: PiFamilyAcquisitionBufferLimits
 }
 
 const PI_OPTION_TIMEOUT_MS = 8_000
@@ -93,7 +87,7 @@ const PI_CLOSE_GRACE_MS = 2_000
 const PI_CATALOG_LOOKUP_TIMEOUT_MS = 3_000
 
 export abstract class PiRpcSessionLifecycle {
-  protected conn: PiRpcConnection | null = null
+  protected conn: PiFamilyRpcConnection | null = null
   protected child: SpawnedProcess | null = null
   protected readonly translator = new PiTranslator()
   protected readonly optionsState = new PiSessionOptionState()
@@ -102,6 +96,7 @@ export abstract class PiRpcSessionLifecycle {
   protected leafId: string | null = null
   protected sessionFile: string | null = null
   protected activeOp: string | null = null
+  protected activePromptId: string | null = null
   protected sink: StructuredAgentSessionEventSink | null = null
   protected pendingImmediate: { opId: string; acked: boolean; accept: () => void } | null = null
   protected closing = false
@@ -123,6 +118,12 @@ export abstract class PiRpcSessionLifecycle {
   protected get closeGrace(): number {
     return this.deps.closeGraceMs ?? PI_CLOSE_GRACE_MS
   }
+  /** Pre-start event tap for bounded pre-publication buffering; driver owns it. */
+  protected beginAcquisitionWindow(): void {}
+  /** Drain the window (or fail on overflow) once acquisition publishes. */
+  protected finishAcquisitionWindow(): void {}
+  /** Unbind backpressure and discard acquisition state; always safe to repeat. */
+  protected teardownAcquisitionState(): void {}
   async acquire(input: Omit<PiDriverAcquireInput, 'orcaSessionId'>): Promise<PiDriverAcquireResult> {
     if (!input.workspaceRoot || input.workspaceRoot.trim() === '') {
       throw new Error('BAD_WORKSPACE: acquire requires a non-empty workspaceRoot')
@@ -132,8 +133,9 @@ export abstract class PiRpcSessionLifecycle {
     }
     this.sink = input.sink ?? null
     const baseEnv = (await this.deps.resolveEnv?.()) ?? process.env
-    let command = this.deps.piCommand ?? 'pi'
-    let args: readonly string[] = [...(this.deps.piArgs ?? []), ...argsForOptions(input.options, this.deps.piArgs ?? [])]
+    const launch = resolvePiFamilyLaunchCommand(input.provider ?? 'pi', this.deps)
+    let command = launch.command
+    let args: readonly string[] = [...launch.baseArgs, ...argsForOptions(input.options, launch.baseArgs)]
     try {
       const spec = toPiRpcProcessSpec({ command, cwd: input.workspaceRoot, args })
       command = spec.command
@@ -142,7 +144,8 @@ export abstract class PiRpcSessionLifecycle {
       throw new Error('PI_TUI_FLAG: Pi launch rejects TUI-only flags')
     }
     const spawnImpl = this.deps.spawnImpl ?? spawnProcess
-    const conn = new PiRpcConnection({
+    const conn = new PiFamilyRpcConnection({
+      provider: input.provider ?? 'pi',
       piCommand: command,
       piArgs: args,
       cwd: input.workspaceRoot,
@@ -163,6 +166,7 @@ export abstract class PiRpcSessionLifecycle {
       ...(this.deps.startupTimeoutMs !== undefined ? { startupTimeoutMs: this.deps.startupTimeoutMs } : {})
     })
     this.conn = conn
+    this.beginAcquisitionWindow()
     try {
       await conn.start()
     } catch (error) {
@@ -174,10 +178,13 @@ export abstract class PiRpcSessionLifecycle {
         this.conn = null
         this.child = null
       }
-      throw new Error(`PI_STARTUP_FAILED: ${classifyStartupError(error)}`)
+      const who = conn.familyProvider === 'omp' ? 'OMP' : 'Pi'
+      throw new Error(`PI_STARTUP_FAILED: ${classifyStartupError(error, who)}`)
     }
     try {
-      return await this.finishAcquire(conn, input)
+      const acquired = await this.finishAcquire(conn, input)
+      this.finishAcquisitionWindow()
+      return acquired
     } catch (error) {
       await conn.close(this.closeGrace).catch(() => undefined)
       throw error
@@ -190,18 +197,24 @@ export abstract class PiRpcSessionLifecycle {
   protected abstract handlePiRecord(record: Record<string, unknown>): void;
 
   protected async finishAcquire(
-    conn: PiRpcConnection,
+    conn: PiFamilyRpcConnection,
     input: Omit<PiDriverAcquireInput, 'orcaSessionId'>
   ): Promise<PiDriverAcquireResult> {
+    // The transport carries the discriminant it spawned, so resume/verify
+    // below always agree with the child even if the driver is reused.
+    const who = conn.familyProvider === 'omp' ? 'OMP' : 'Pi'
     let state: PiState
     try {
       state = await conn.getState()
     } catch (error) {
-      throw new Error(`PI_STATE_FAILED: Pi started but get_state failed (${shortPiError(error)})`)
+      throw new Error(`PI_STATE_FAILED: ${who} started but get_state failed (${shortPiError(error)})`)
     }
     let resumed = false
     if (input.resumeSessionFile !== undefined) {
-      const outcome = await resumePiSession(conn, {
+      // Exact same-provider file or nothing: the helper fails closed on a
+      // missing file and never parses an OMP file here.
+      const outcome = await resumePiFamilySession(conn, {
+        provider: conn.familyProvider,
         resumePath: input.resumeSessionFile,
         workspaceRoot: input.workspaceRoot,
         timeoutMs: this.optionTimeout
@@ -211,10 +224,10 @@ export abstract class PiRpcSessionLifecycle {
     }
     const piSessionId = typeof state.sessionId === 'string' && state.sessionId !== '' ? state.sessionId : null
     if (!piSessionId) {
-      throw new Error('PI_STATE_FAILED: Pi started but reported no session id')
+      throw new Error(`PI_STATE_FAILED: ${who} started but reported no session id`)
     }
     if (input.resumePiSessionId && piSessionId !== input.resumePiSessionId) {
-      throw new Error('PI_RESUME_FAILED: Pi resumed a different session than requested')
+      throw new Error(`PI_RESUME_FAILED: ${who} resumed a different session than requested`)
     }
     this.sessionFile = typeof state.sessionFile === 'string' && state.sessionFile !== '' ? state.sessionFile : null
     this.optionsState.model = qualifyPiModelRef(state.model) ?? input.options?.['model']
@@ -227,13 +240,13 @@ export abstract class PiRpcSessionLifecycle {
       await this.applyOptions(input.options)
     }
     if (resumed) {
-      const rebuilt = await rebuildPiHistory(conn, { timeoutMs: this.optionTimeout, busy: false, closed: false })
+      const rebuilt = await rebuildPiHistory(conn, { timeoutMs: this.optionTimeout, busy: false, closed: false, provider: conn.familyProvider })
       if (!rebuilt.ok) {
         throw new Error(`${rebuilt.code}: ${rebuilt.message}`)
       }
       this.leafId = rebuilt.history.leafId
     }
-    conn.onEvent((record) => this.handlePiRecord(record as Record<string, unknown>))
+    // Live routing was attached pre-start for pre-publication buffering; only the exit observer lands here.
     conn.onExit(() => this.handleExit())
     void this.optionsState.catalog(conn, PI_CATALOG_LOOKUP_TIMEOUT_MS).catch(() => null)
     return {
@@ -257,6 +270,7 @@ export abstract class PiRpcSessionLifecycle {
       this.optionsState.retireAllPrompts()
       this.translator.resetAll()
       this.activeOp = null
+      this.activePromptId = null
       this.pendingImmediate = null
       const result = await conn.close(graceMs ?? this.closeGrace)
       const exitObserved = result.exitCode !== null || result.signal !== null
@@ -277,6 +291,7 @@ export abstract class PiRpcSessionLifecycle {
       return false
     } finally {
       this.closing = false
+      this.teardownAcquisitionState()
     }
   }
 
@@ -309,7 +324,7 @@ export abstract class PiRpcSessionLifecycle {
     return null
   }
 
-  protected requireLive(): PiRpcConnection {
+  protected requireLive(): PiFamilyRpcConnection {
     const conn = this.conn
     if (!conn || conn.isClosed || this.closed) {
       throw new Error('pi-exited (reacquire the session)')

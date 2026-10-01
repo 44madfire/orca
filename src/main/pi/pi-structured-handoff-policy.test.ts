@@ -9,6 +9,15 @@ import {
 describe('Pi handoff quiesce policy', () => {
   it('proceeds when idle and refuses busy `now` without killing the turn', () => {
     expect(
+      decidePiHandoffQuiesce({
+        hasActiveTurn: false,
+        hasPendingPrompt: false,
+        hasBackgroundWork: true,
+        mode: 'now',
+        direction: 'to-tui'
+      })
+    ).toMatchObject({ kind: 'refuse-busy' })
+    expect(
       decidePiHandoffQuiesce({ hasActiveTurn: false, hasPendingPrompt: false, mode: 'now', direction: 'to-tui' })
     ).toEqual({ kind: 'proceed' })
     expect(
@@ -30,11 +39,12 @@ describe('Pi handoff quiesce policy', () => {
 })
 
 describe('Pi handoff identity', () => {
+  const FILE = '/tmp/pi-ses-1.jsonl'
   it('resumes the exact same Pi session while the leaf advances', () => {
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
-        to: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-10' }
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-10', sessionFile: FILE }
       })
     ).toMatchObject({ ok: true })
   })
@@ -42,20 +52,43 @@ describe('Pi handoff identity', () => {
   it('fails closed when the Pi session changes, the handle is missing, or the provider mismatches', () => {
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
-        to: { provider: 'pi', sessionId: 'pi-ses-2', leafId: 'leaf-9' }
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'pi', sessionId: 'pi-ses-2', leafId: 'leaf-9', sessionFile: FILE }
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_SESSION_MISMATCH' })
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
         to: null
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_UNKNOWN_DISPATCH' })
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
         to: { provider: 'codex', threadId: 'thread-1' }
+      })
+    ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
+  })
+
+  it('validates OMP the same way and never lets a handoff cross providers', () => {
+    const ompFile = '/tmp/omp-ses-1.jsonl'
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'omp', sessionId: 'omp-ses-1', leafId: 'leaf-9', sessionFile: ompFile },
+        to: { provider: 'omp', sessionId: 'omp-ses-1', leafId: 'leaf-10', sessionFile: ompFile }
+      })
+    ).toMatchObject({ ok: true })
+    // A Pi file is never opened by OMP and vice versa, even with equal ids.
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'omp', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: ompFile },
+        to: { provider: 'pi', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: FILE }
+      })
+    ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'pi', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'omp', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: ompFile }
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
   })

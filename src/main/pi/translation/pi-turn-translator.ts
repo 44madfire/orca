@@ -51,7 +51,8 @@
  * transport wrapper.
  */
 
-import { mapPiRecordToSessionEvents } from "./pi-record-mapping";
+import type { PiFamilyProvider } from "../rpc/pi-family-rpc-types";
+import { mapPiFamilyRecordToSessionEvents } from "./pi-family-record-dialect";
 import type { PiSessionEvent } from "./pi-session-events";
 
 export type PiTranslatorEvent = PiSessionEvent;
@@ -86,7 +87,8 @@ export type TranslatorJournalEntry = {
  *
  * Lifecycle:
  * - `notePendingUser(text)` on idle dispatch (unjournaled until receipt proof).
- * - `applyPiRecord(record)` for every Pi event (returns filtered bridge events).
+ * - `applyPiRecord(record, provider)` for every Pi-family event (shared
+ *   semantics; the provider selects only the settlement dialect).
  * - `drainTurnEnd()` on `turn_end` → journal entries for this turn (user +
  *   assistant and/or tools), clears per-turn text but keeps session tools?
  *   No — tools complete per turn; per-turn text cleared, tool completions
@@ -169,8 +171,8 @@ export class PiTranslator {
    *   calls `drainTurnEnd()`/`settle()`).
    * - Unknown/chrome records map to `[]` and change no state (bounded).
    */
-  applyPiRecord(record: Record<string, unknown>): PiTranslatorEvent[] {
-    const events = mapPiRecordToSessionEvents(record);
+  applyPiRecord(record: Record<string, unknown>, provider: PiFamilyProvider = 'pi'): PiTranslatorEvent[] {
+    const events = mapPiFamilyRecordToSessionEvents(record, provider);
     if (events.length === 0) {return events;}
     const out: PiTranslatorEvent[] = [];
     for (const event of events) {

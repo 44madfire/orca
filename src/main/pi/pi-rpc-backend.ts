@@ -1,8 +1,8 @@
-// Production Pi RPC backend (SNC1.9 native Pi).
+// Production Pi-family RPC backend (SNC1.9 native Pi/OMP).
 //
 // Implements `PiStructuredBackend` over first-party per-session drivers
-// (`pi-rpc-session-driver`): exactly one `pi --mode rpc` child per Orca
-// structured session, spawned in the Orca-selected workspaceRoot through
+// (`pi-rpc-session-driver`): exactly one selected provider RPC child
+// (`pi --mode rpc` or `omp --mode rpc`) per Orca structured session, spawned in the Orca-selected workspaceRoot through
 // Orca's child-process chokepoint. Journal-visible prompt ids are the
 // driver's Pi-local ids; answers route by journal item key, so no
 // cross-session namespacing is needed (unlike the external bridge, where op
@@ -17,7 +17,13 @@
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
-import { PiRpcSessionDriver, type PiDriverAcquireResult, type PiDriverDeps } from './pi-rpc-session-driver'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import type { PiFamilyPromptFact } from './translation/pi-family-record-dialect'
+import {
+  PiRpcSessionDriver,
+  type PiDriverAcquireResult,
+  type PiDriverDeps
+} from './pi-rpc-session-driver'
 import { collectPiDispatchContent } from './pi-dispatch-images'
 import type {
   PiStructuredAcquireResult,
@@ -42,11 +48,14 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     async acquire(input: {
       orcaSessionId: string
       workspaceRoot: string
+      provider?: PiFamilyProvider
       resumePiSessionId?: string
       resumeSessionFile?: string
       options?: Readonly<Record<string, string>>
       spawnToken: string
       sink?: StructuredAgentSessionEventSink | null
+      /** Per-session provider-record observer for dispatch settlement (PIF-4, #25). */
+      onRecord?: (record: Record<string, unknown>) => void
     }): Promise<PiStructuredAcquireResult> {
       const stale = drivers.get(input.orcaSessionId)
       if (stale) {
@@ -61,13 +70,33 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         }
         drivers.delete(input.orcaSessionId)
       }
-      const driver = new PiRpcSessionDriver(input.orcaSessionId, deps)
+      // Generation fencing: a superseded driver's late exit must not publish
+      // against its replacement. Only the indexed driver (or one racing an
+      // empty slot mid-acquire) may forward unexpected exits.
+      let driver: PiRpcSessionDriver
+      const driverDeps: PiDriverDeps = {
+        ...deps,
+        onUnexpectedExit: (sessionId) => {
+          const current = drivers.get(sessionId)
+          if (current === driver || current === undefined) {
+            deps.onUnexpectedExit?.(sessionId)
+          }
+        }
+      }
+      driver = new PiRpcSessionDriver(input.orcaSessionId, driverDeps)
+      // Bound before the first prompt can land so no settle/prompt_result frame is missed.
+      driver.recordObserver = input.onRecord ?? null
       let acquired: PiDriverAcquireResult
       try {
         acquired = await driver.acquire({
           workspaceRoot: input.workspaceRoot,
-          ...(input.resumeSessionFile !== undefined ? { resumeSessionFile: input.resumeSessionFile } : {}),
-          ...(input.resumePiSessionId !== undefined ? { resumePiSessionId: input.resumePiSessionId } : {}),
+          ...(input.provider !== undefined ? { provider: input.provider } : {}),
+          ...(input.resumeSessionFile !== undefined
+            ? { resumeSessionFile: input.resumeSessionFile }
+            : {}),
+          ...(input.resumePiSessionId !== undefined
+            ? { resumePiSessionId: input.resumePiSessionId }
+            : {}),
           ...(input.options !== undefined ? { options: input.options } : {}),
           spawnToken: input.spawnToken,
           ...(input.sink !== undefined ? { sink: input.sink } : {})
@@ -86,6 +115,8 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         throw error
       }
       drivers.set(input.orcaSessionId, driver)
+      // Best-effort dialect command pull; failures leave the catalog absent (never fabricated).
+      await driver.refreshCommands()
       return {
         piSessionId: acquired.piSessionId,
         leafId: acquired.leafId,
@@ -129,8 +160,34 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       }
     },
 
-    async cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }> {
-      return requireDriver(input.orcaSessionId).cancel()
+    async cancel(input: {
+      orcaSessionId: string
+      expectedTurnId?: string
+    }): Promise<{ cancelled: boolean }> {
+      return requireDriver(input.orcaSessionId).cancel(input.expectedTurnId)
+    },
+
+    liveTurnId(input: { orcaSessionId: string }): string | null {
+      return drivers.get(input.orcaSessionId)?.liveTurnId() ?? null
+    },
+
+    promptOwner(input: { orcaSessionId: string; itemKey: string }): {
+      requestId: string
+      opId: string
+    } | null {
+      return drivers.get(input.orcaSessionId)?.promptTurnOwner(input.itemKey) ?? null
+    },
+
+    drainPromptFacts(input: { orcaSessionId: string }): PiFamilyPromptFact[] {
+      const driver = drivers.get(input.orcaSessionId)
+      return driver ? driver.drainFamilyFacts() : []
+    },
+
+    async readEntries(input: {
+      orcaSessionId: string
+      since?: string
+    }): Promise<{ entries: readonly unknown[]; leafId: string }> {
+      return requireDriver(input.orcaSessionId).readHistoryEntries(input.since)
     },
 
     async close(input: { orcaSessionId: string }): Promise<boolean> {
@@ -151,18 +208,19 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     },
 
     async answerPrompt(input: {
+      orcaSessionId: string
       itemKey: string
       kind: 'approval' | 'question'
       optionId: string
     }): Promise<void> {
-      for (const driver of drivers.values()) {
-        const tracked = driver.promptTracker.get(input.itemKey)
-        if (tracked) {
-          driver.answerPrompt(tracked.requestId, { kind: input.kind, optionId: input.optionId })
-          return
-        }
+      // Session-scoped: a stale generation answers through its own driver
+      // lookup and never through a replacement child's prompts.
+      const driver = drivers.get(input.orcaSessionId)
+      const owner = driver?.promptTurnOwner(input.itemKey)
+      if (!driver || !owner) {
+        throw new Error('UNKNOWN_REQUEST: unknown prompt request (already answered or retired)')
       }
-      throw new Error('UNKNOWN_REQUEST: unknown prompt request (already answered or retired)')
+      driver.answerPrompt(owner.requestId, { kind: input.kind, optionId: input.optionId })
     },
 
     async setOption(input: {
@@ -181,12 +239,26 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       return requireDriver(input.orcaSessionId).readOptions()
     },
 
-    async listModels(input: { orcaSessionId: string }): Promise<{ id: string; provider: string }[]> {
+    async listModels(input: {
+      orcaSessionId: string
+    }): Promise<{ id: string; provider: string }[]> {
       return requireDriver(input.orcaSessionId).listModels()
     },
 
     async listThinkingLevels(input: { orcaSessionId: string }): Promise<string[]> {
       return requireDriver(input.orcaSessionId).listThinkingLevels()
+    },
+
+    readCommands(input: { orcaSessionId: string }) {
+      return drivers.get(input.orcaSessionId)?.readCommands()
+    },
+
+    async refreshCommands(input: { orcaSessionId: string }) {
+      return requireDriver(input.orcaSessionId).refreshCommands()
+    },
+
+    async compact(input: { orcaSessionId: string }): Promise<{ error?: string }> {
+      return requireDriver(input.orcaSessionId).compact()
     },
 
     async readResumeHistory(input: { orcaSessionId: string }): Promise<{
@@ -200,7 +272,10 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
 
 function sanitizeDispatchError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  const singleLine = message.replace(/[\r\n]+/g, ' ').trim().slice(0, 220)
+  const singleLine = message
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, 220)
   if (/^(pi-exited|no live pi structured session)/.test(singleLine)) {
     return singleLine
   }
@@ -209,7 +284,10 @@ function sanitizeDispatchError(error: unknown): string {
 
 function sanitizeImageError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  if (/^Pi (image|messages) /.test(message) || message === 'image reference has neither a path nor a URL') {
+  if (
+    /^Pi (image|messages) /.test(message) ||
+    message === 'image reference has neither a path nor a URL'
+  ) {
     return message
   }
   return 'Pi image could not be read (missing or unreadable file)'

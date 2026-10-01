@@ -172,7 +172,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
             },
             envelope: params.envelope,
             worktree: params.worktree,
-            agent: params.agent as 'claude' | 'codex' | 'pi',
+            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this branch only runs for CreateIntentParams, whose zod schema already narrows agent to these four.
+            agent: params.agent as 'claude' | 'codex' | 'pi' | 'omp',
             caller: callerFor(ctx),
             ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {})
           })

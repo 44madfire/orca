@@ -433,3 +433,122 @@ describe('external bridge handles (SNC1.3 dev seam)', () => {
     ).toThrow('agent_session_provider_handle_provider_mismatch')
   })
 })
+
+describe('pi/omp family handles (PIF-1 durable providers)', () => {
+  const PI: AgentSessionProviderHandle = {
+    provider: 'pi',
+    sessionId: 'pi-ses-1',
+    leafId: 'leaf-9',
+    sessionFile: '/tmp/pi-ses-1.jsonl'
+  }
+  const OMP: AgentSessionProviderHandle = {
+    provider: 'omp',
+    sessionId: 'omp-ses-1',
+    leafId: 'leaf-9',
+    sessionFile: '/tmp/omp-ses-1.jsonl'
+  }
+
+  function piLink(
+    overrides: Partial<AgentSessionProviderHandleLink> = {}
+  ): AgentSessionProviderHandleLink {
+    return {
+      linkId: 'pi-1',
+      handle: PI,
+      origin: 'created',
+      mintedAtFence: 1,
+      observedAt: 1_000,
+      ...overrides
+    }
+  }
+
+  it('recognises both Pi-family providers without letting unknowns impersonate Codex', () => {
+    expect(isAgentSessionHandleProvider('pi')).toBe(true)
+    expect(isAgentSessionHandleProvider('omp')).toBe(true)
+    expect(isAgentSessionHandleProvider('gemini')).toBe(false)
+    expect(isAgentSessionProviderHandle(PI)).toBe(true)
+    expect(isAgentSessionProviderHandle(OMP)).toBe(true)
+  })
+
+  it('requires the exact session file on both providers', () => {
+    expect(isAgentSessionProviderHandle({ ...PI, sessionFile: '' })).toBe(false)
+    expect(isAgentSessionProviderHandle({ ...OMP, sessionFile: '  ' })).toBe(false)
+    expect(
+      isAgentSessionProviderHandle({ provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' })
+    ).toBe(false)
+    expect(isAgentSessionProviderHandle({ ...PI, leafId: '' })).toBe(false)
+    expect(isAgentSessionProviderHandle({ ...PI, leafId: null })).toBe(true)
+  })
+
+  it('round-trips both providers through persist/serialize/parse with exact fields', () => {
+    for (const handle of [PI, OMP]) {
+      const reloaded: unknown = JSON.parse(JSON.stringify(handle))
+      expect(isAgentSessionProviderHandle(reloaded)).toBe(true)
+      expect(reloaded).toEqual(handle)
+      if (!isAgentSessionProviderHandle(reloaded)) {
+        throw new Error('pi-family round-trip failed validation')
+      }
+      expect(agentSessionProviderHandleKey(reloaded)).toBe(
+        agentSessionProviderHandleKey(handle)
+      )
+      if (reloaded.provider === 'pi' || reloaded.provider === 'omp') {
+        expect(reloaded.sessionId).toBe(handle.sessionId)
+        expect(reloaded.leafId).toBe(handle.leafId)
+        expect(reloaded.sessionFile).toBe(handle.sessionFile)
+      } else {
+        throw new Error('pi-family round-trip changed provider')
+      }
+    }
+  })
+
+  it('never compares Pi and OMP handles as the same root, even with equal session ids', () => {
+    const piTwin: AgentSessionProviderHandle = { ...PI, sessionId: 'same-1' }
+    const ompTwin: AgentSessionProviderHandle = {
+      provider: 'omp',
+      sessionId: 'same-1',
+      leafId: 'leaf-9',
+      sessionFile: '/tmp/omp-same-1.jsonl'
+    }
+    expect(agentSessionProviderHandleRoot(piTwin)).not.toBe(
+      agentSessionProviderHandleRoot(ompTwin)
+    )
+    expect(agentSessionProviderHandleKey(piTwin)).not.toBe(agentSessionProviderHandleKey(ompTwin))
+    expect(agentSessionProviderHandlesEqual(piTwin, ompTwin)).toBe(false)
+  })
+
+  it('keeps the root across leaf changes and carries the exact session file through resumes', () => {
+    const resumed = piLink({
+      linkId: 'pi-2',
+      origin: 'resumed',
+      handle: { ...PI, leafId: 'leaf-10' },
+      mintedAtFence: 2
+    })
+    const chain = appendAgentSessionProviderHandleLink([piLink()], resumed)
+    expect(agentSessionProviderHandleChainHead(chain)?.handle).toMatchObject({
+      leafId: 'leaf-10',
+      sessionFile: '/tmp/pi-ses-1.jsonl'
+    })
+    expect(isAgentSessionProviderHandleChain(chain)).toBe(true)
+    // Same chain one JSON persistence round-trip later still validates.
+    const reloaded = JSON.parse(JSON.stringify(chain))
+    expect(isAgentSessionProviderHandleChain(reloaded)).toBe(true)
+  })
+
+  it('rejects a provider change exactly where Claude/Codex mismatches are rejected', () => {
+    expect(() =>
+      appendAgentSessionProviderHandleLink([piLink()], {
+        ...piLink({ linkId: 'pi-2', origin: 'resumed', mintedAtFence: 2 }),
+        handle: OMP
+      })
+    ).toThrow('agent_session_provider_handle_provider_mismatch')
+  })
+
+  it('rejects a Pi-family resume that lands on another session root', () => {
+    const ompCreated = piLink({ linkId: 'omp-1', handle: OMP })
+    expect(() =>
+      appendAgentSessionProviderHandleLink([ompCreated], {
+        ...piLink({ linkId: 'omp-2', origin: 'resumed', mintedAtFence: 2 }),
+        handle: { ...OMP, sessionId: 'omp-ses-2' }
+      })
+    ).toThrow('agent_session_provider_handle_forked')
+  })
+})

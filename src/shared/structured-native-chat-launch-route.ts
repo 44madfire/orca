@@ -8,7 +8,7 @@
  * drifts.
  */
 
-import { isAgentSessionHandleProvider } from './agent-session-provider-handle'
+import { isStructuredSessionCreatableProvider } from './agent-session-provider-handle'
 import type { GlobalSettings } from './global-settings-types'
 import type { ProjectExecutionRuntimeResolution } from './project-execution-runtime'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from './protocol-version'
@@ -80,7 +80,9 @@ export function resolveStructuredNativeChatSupport(
   if (input.reusesTerminal === true) {
     return { supported: false, blocker: 'reused-terminal' }
   }
-  if (!isAgentSessionHandleProvider(input.agent)) {
+  if (!isStructuredSessionCreatableProvider(input.agent)) {
+    // Offering an uncreatable agent structured chat would strand a provisional
+    // tab with no terminal fallback. `omp` is creatable via Pi-family acquisition.
     return { supported: false, blocker: 'agent-without-structured-session' }
   }
   if (input.workspaceKind === 'floating') {

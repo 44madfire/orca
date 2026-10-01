@@ -16,6 +16,7 @@ import type {
 } from '../../../shared/agent-session-provider-handle'
 import { claudeProviderHandleLink } from '../../claude/claude-structured-owner-identity'
 import { codexProviderHandleLink } from '../../codex/codex-structured-owner-identity'
+import { piFamilyDurableResumeTarget } from '../../pi/pi-structured-owner-identity'
 import type {
   AgentSessionAccountHome,
   AgentSessionExecutionLocation,
@@ -144,8 +145,8 @@ export function journalIdentityFor(
   // External bridge sessions (SNC1.3 dev seam) have no transcript-backed provider identity:
   // the journal names the opaque bridge session id, and the adapter streams under
   // `legacy`/`external` item identities. Orca still owns the journal, lease, and fence.
-  // Pi resumes by session id carried opaquely; the exact session file stays on
-  // the durable chain head for TUI launch planning, never in the journal key.
+  // Pi-family resumes carry the provider discriminant opaquely (`pi:`/`omp:`); the exact
+  // session file stays on the durable chain head for resume planning, never in the journal key.
   const providerHandle: AgentSessionProviderHandle =
     head?.handle.provider === 'codex'
       ? { kind: 'codex', threadId: head.handle.threadId }
@@ -159,7 +160,13 @@ export function journalIdentityFor(
           ? { kind: 'opaque', agent: params.agent, value: head.handle.sessionId }
           : head?.handle.provider === 'pi'
             ? { kind: 'opaque', agent: params.agent, value: `pi:${head.handle.sessionId}` }
-            : (params.providerHandle ?? { kind: 'opaque', agent: params.agent, value: 'pending' })
+            : head?.handle.provider === 'omp'
+              ? { kind: 'opaque', agent: params.agent, value: `omp:${head.handle.sessionId}` }
+              : (params.providerHandle ?? {
+                  kind: 'opaque',
+                  agent: params.agent,
+                  value: 'pending'
+                })
   return {
     sessionId: record.sessionId,
     workspaceId: params.location.workspaceId,
@@ -223,6 +230,7 @@ export async function attachJournal(input: {
       journal: opened.journal,
       fence,
       accountHome: input.record.accountHome,
+      durableTarget: piFamilyDurableResumeTarget(input.record),
       ...(Object.hasOwn(input, 'providerHistoryWindow')
         ? { history: input.providerHistoryWindow }
         : {})
@@ -249,6 +257,7 @@ async function reconcileAgainstProviderHistory(input: {
   journal: AgentSessionJournal
   fence: number
   accountHome: AgentSessionAccountHome
+  durableTarget: { sessionFile: string; leafId: string | null } | undefined
   history?: ProviderHistoryWindow | null
 }): Promise<string[]> {
   let history = input.history
@@ -259,7 +268,9 @@ async function reconcileAgainstProviderHistory(input: {
     try {
       history = await input.adapter.providerHistoryWindow({
         identity: input.identity,
-        accountHome: input.accountHome
+        accountHome: input.accountHome,
+        resumeSessionFile: input.durableTarget?.sessionFile,
+        durableLeafId: input.durableTarget?.leafId
       })
     } catch {
       return []
