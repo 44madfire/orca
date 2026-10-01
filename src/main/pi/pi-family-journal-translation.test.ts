@@ -285,26 +285,50 @@ describe('Pi-family settlement dialect', () => {
     ).toHaveLength(1)
   })
 
-  it('settles OMP on terminal agent_end and keeps non-terminal turns active', () => {
+  it('drains OMP terminal agent_end as a run turn, never session idle', () => {
     expect(mapPiFamilyRecordToSessionEvents({ type: 'agent_end', isTerminal: true }, 'omp')).toEqual([
+      { type: 'turn_end', stopReason: 'stop' }
+    ])
+    expect(mapPiFamilyRecordToSessionEvents({ type: 'agent_end' }, 'omp')).toEqual([
+      { type: 'turn_end', stopReason: 'stop' }
+    ])
+    expect(mapPiFamilyRecordToSessionEvents({ type: 'agent_end', isTerminal: false }, 'omp')).toEqual([])
+  })
+
+  it('settles OMP only on session_settled or correlated prompt_result sessionSettled', () => {
+    expect(mapPiFamilyRecordToSessionEvents({ type: 'session_settled' }, 'omp')).toEqual([
       { type: 'settled' }
     ])
-    expect(mapPiFamilyRecordToSessionEvents({ type: 'agent_end' }, 'omp')).toEqual([{ type: 'settled' }])
-    expect(mapPiFamilyRecordToSessionEvents({ type: 'agent_end', isTerminal: false }, 'omp')).toEqual([])
+    expect(
+      mapPiFamilyRecordToSessionEvents(
+        { type: 'prompt_result', id: 'r1', agentInvoked: true, sessionSettled: true },
+        'omp'
+      )
+    ).toEqual([{ type: 'settled' }])
+    expect(mapPiFamilyRecordToSessionEvents({ type: 'prompt_result', id: 'r1' }, 'omp')).toEqual([])
+    expect(mapPiFamilyRecordToSessionEvents({ type: 'session_settled' }, 'pi')).toEqual([])
   })
 
   it('agrees with the flavor predicate on every settle shape', () => {
     const settledRecords: { record: Record<string, unknown>; provider: PiFamilyProvider; settled: boolean }[] = [
       { record: { type: 'agent_settled' }, provider: 'pi', settled: true },
       { record: { type: 'turn_end' }, provider: 'pi', settled: false },
-      { record: { type: 'agent_end', isTerminal: true }, provider: 'omp', settled: true },
-      { record: { type: 'agent_end' }, provider: 'omp', settled: true },
+      { record: { type: 'session_settled' }, provider: 'omp', settled: true },
+      { record: { type: 'prompt_result', id: 'r1', sessionSettled: true }, provider: 'omp', settled: true },
+      { record: { type: 'prompt_result', id: 'r1' }, provider: 'omp', settled: false },
+      { record: { type: 'agent_end', isTerminal: true }, provider: 'omp', settled: false },
+      { record: { type: 'agent_end' }, provider: 'omp', settled: false },
       { record: { type: 'agent_end', isTerminal: false }, provider: 'omp', settled: false }
     ]
     for (const { record, provider, settled } of settledRecords) {
       const flavor = resolvePiFamilyFlavor(provider)
       expect(
-        flavor.isSettled({ type: String(record['type']), isTerminal: record['isTerminal'] })
+        flavor.isSettled({
+          type: String(record['type']),
+          isTerminal: record['isTerminal'],
+          id: record['id'],
+          sessionSettled: record['sessionSettled']
+        })
       ).toBe(settled)
       const mapped = mapPiFamilyRecordToSessionEvents(record, provider)
       expect(mapped.some((event) => event.type === 'settled')).toBe(settled)
@@ -316,12 +340,17 @@ describe('Pi-family OMP-only async records', () => {
   it('hands prompt results to the owning subsystem without journaling them', () => {
     expect(extractPiFamilyRecordFact({ type: 'prompt_result', id: 'r1', agentInvoked: true })).toEqual({
       kind: 'prompt-result',
-      agentInvoked: true
+      agentInvoked: true,
+      id: 'r1'
     })
     expect(extractPiFamilyRecordFact({ type: 'prompt_result', id: 'r2', agentInvoked: false })).toEqual({
       kind: 'prompt-result',
-      agentInvoked: false
+      agentInvoked: false,
+      id: 'r2'
     })
+    expect(
+      extractPiFamilyRecordFact({ type: 'prompt_result', id: 'r3', sessionSettled: true })
+    ).toEqual({ kind: 'prompt-result', agentInvoked: true, id: 'r3', sessionSettled: true })
     expect(mapPiFamilyRecordToSessionEvents({ type: 'prompt_result', agentInvoked: true }, 'omp')).toEqual([])
     const rows: Row[] = []
     driveRecords([{ type: 'prompt_result', id: 'r1', agentInvoked: true }], 'omp', rows, { current: null })

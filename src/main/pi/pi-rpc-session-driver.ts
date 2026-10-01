@@ -1,11 +1,7 @@
 // First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
-//
-// Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
-// Owns Pi event streaming into the journal, exactly-once prompt answers,
-// exact-match options, and wholesale history rebuilds. Journal rows come only
-// from streamed Pi events under stable turn-scoped keys, so finals reconcile
-// rather than duplicate. Failures are actionable `PI_*` errors without paths,
-// prompt text, or bytes.
+// Split of the session driver (see `pi-rpc-session-lifecycle.ts`): streams Pi
+// events into the journal under stable turn keys with exactly-once prompts.
+// Failures are actionable `PI_*` errors without paths, text, or bytes.
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
 import {
@@ -242,28 +238,24 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 
   private deliverPiRecord(record: Record<string, unknown>): void {
-    // Dispatch settlement observes every record here: steady-state records bypass
-    // handlePiRecord via the acquisition gate. The observer must never throw.
+    // Steady-state records bypass handlePiRecord; the observer must never throw.
     this.recordObserver?.(record)
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
-    // OMP pushed catalog refresh on the normal event path (no second
-    // subscription); Pi stays pull-based and ignores this frame.
+    // OMP catalog pushes refresh here; Pi stays pull-based.
     this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
     this.factTray.observe(record)
     if (this.activeOp) {
-      // OMP dialect, cleared exactly like final settle: a locally-completed
-      // prompt (`prompt_result` with `agentInvoked:false`) runs no agent turn,
-      // so the live op retires here. Without this the op stays armed behind a
-      // turn that will never settle, wedging dispatch and history rebuild.
-      // Peeked through the same fact classifier the tray uses; the tray keeps
-      // its facts for the drain seam, so no second state machine is added.
+      // Late local-only frame, id-correlated to the prompting turn.
       const fact = extractPiFamilyRecordFact(record)
       if (fact?.kind === 'prompt-result' && !fact.agentInvoked) {
+        const incoming: unknown = record['id']
+        if (typeof this.activePromptId === 'string' && typeof incoming === 'string' && incoming !== this.activePromptId) {return;}
         const opId = this.activeOp
         this.translator.settle()
         this.activeOp = null
+        this.activePromptId = null
         this.optionsState.retirePromptsForOp(opId)
         void this.refreshSessionFile()
         return
@@ -276,16 +268,13 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       }
       const opId = this.activeOp
       for (const event of events) {
-        if (event.type === 'prompt_request') {
-          this.optionsState.trackPrompt(event.requestId, opId)
-        }
-        if (event.type === 'turn_end') {
-          this.translator.drainTurnEnd()
-        }
+        if (event.type === 'prompt_request') {this.optionsState.trackPrompt(event.requestId, opId);}
+        if (event.type === 'turn_end') {this.translator.drainTurnEnd();}
         if (event.type === 'settled') {
           this.translator.settle()
           if (this.activeOp === opId) {
             this.activeOp = null
+            this.activePromptId = null
           }
           this.optionsState.retirePromptsForOp(opId)
           void this.refreshSessionFile()
@@ -301,9 +290,7 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       return
     }
     for (const event of stateless) {
-      if (event.type !== 'prompt_request') {
-        continue
-      }
+      if (event.type !== 'prompt_request') {continue;}
       const immediate = this.pendingImmediate
       if (immediate && !immediate.acked) {
         immediate.acked = true

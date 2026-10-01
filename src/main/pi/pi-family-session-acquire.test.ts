@@ -422,12 +422,21 @@ describe('Pi-family live settle predicate', () => {
           ).toBe(false)
         } else {
           expect(
+            adapter.isSettledEvent({ sessionId, event: { type: 'session_settled' } })
+          ).toBe(true)
+          expect(
+            adapter.isSettledEvent({
+              sessionId,
+              event: { type: 'prompt_result', id: 'r1', sessionSettled: true }
+            })
+          ).toBe(true)
+          expect(
             adapter.isSettledEvent({
               sessionId,
               event: { type: 'agent_end', isTerminal: true }
             })
-          ).toBe(true)
-          expect(adapter.isSettledEvent({ sessionId, event: { type: 'agent_end' } })).toBe(true)
+          ).toBe(false)
+          expect(adapter.isSettledEvent({ sessionId, event: { type: 'agent_end' } })).toBe(false)
           expect(
             adapter.isSettledEvent({
               sessionId,
@@ -439,14 +448,14 @@ describe('Pi-family live settle predicate', () => {
         expect(
           adapter.isSettledEvent({
             sessionId,
-            event: { type: provider === 'pi' ? 'agent_settled' : 'agent_end' },
+            event: { type: provider === 'pi' ? 'agent_settled' : 'session_settled' },
             acquisitionGeneration: 'superseded-generation'
           })
         ).toBe(false)
         expect(
           adapter.isSettledEvent({
             sessionId,
-            event: { type: provider === 'pi' ? 'agent_settled' : 'agent_end' },
+            event: { type: provider === 'pi' ? 'agent_settled' : 'session_settled' },
             acquisitionGeneration: generation
           })
         ).toBe(true)

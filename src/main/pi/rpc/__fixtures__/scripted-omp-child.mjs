@@ -1,7 +1,8 @@
 // Deterministic scripted `omp --mode rpc` child for Pi-family tests.
 //
 // Speaks the OMP RPC wire per canonical can1357/oh-my-pi merge
-// `6f2233877756b5553ce520756dd90315d2ff6ee3` (upstream PR #12900): a `ready`
+// `6f2233877756b5553ce520756dd90315d2ff6ee3` (upstream PR #12900) plus current
+// session-quiescence (`session_settled`, id-correlated `prompt_result` sessionSettled): a `ready`
 // frame with protocol versions first, then `available_commands_update`,
 // id-echoed responses (including unknown-command failures), and optional
 // protocol-v2 `rpc_chunk` sequences. Driven by env:
@@ -357,14 +358,9 @@ function handleCommand(cmd) {
       }
       if (text.includes('LOCAL-ONLY')) {
         respond(cmd, true, { agentInvoked: false })
-        send({ type: 'prompt_result', id: cmd.id, agentInvoked: false })
-        // No agent turn follows a locally-completed prompt; the user entry is
-        // already durable, so history-backed settlement needs no terminal frame.
+        // Local-only completes in the ack alone; no prompt_result follows.
         if (!text.includes('NO-ENTRY')) {
           ompAppend('user', text)
-        }
-        if (text.includes('DUP-RESULT')) {
-          send({ type: 'prompt_result', id: cmd.id, agentInvoked: false })
         }
         return
       }
@@ -411,7 +407,11 @@ function handleCommand(cmd) {
           return
         }
         liveTurn = false
-        send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        if (text.includes('NO-SESSION')) {
+          send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        } else {
+          send({ type: 'prompt_result', id: cmd.id, agentInvoked: true, sessionSettled: true })
+        }
         if (text.includes('TWO-USER')) {
           ompAppend('user', text)
           ompAppend('user', text)
@@ -423,8 +423,8 @@ function handleCommand(cmd) {
         } else if (!text.includes('NO-USER')) {
           ompAppend('assistant', `scripted omp reply ${session.entries.length}`)
         }
-        if (text.includes('DUP-RESULT')) {
-          send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        if (text.includes('DUP-RESULT') && !text.includes('NO-SESSION')) {
+          send({ type: 'prompt_result', id: cmd.id, agentInvoked: true, sessionSettled: true })
         }
         send({
           type: 'agent_end',
@@ -439,6 +439,9 @@ function handleCommand(cmd) {
             messages: [],
             willRetry: false
           })
+        }
+        if (!text.includes('NO-SESSION')) {
+          send({ type: 'session_settled' })
         }
       }
       // SLOW keeps the turn open so cancel/settle races stay deterministic.
@@ -472,6 +475,7 @@ function handleCommand(cmd) {
       }
       liveTurn = false
       send({ type: 'agent_end', isTerminal: true, messages: [], willRetry: false })
+      send({ type: 'session_settled' })
       return
     case 'test_delay': {
       const ms = typeof cmd.ms === 'number' ? cmd.ms : 0
@@ -547,8 +551,9 @@ function handleLine(line) {
     pendingDialogs.delete(dialogId)
     if (promptCmd !== undefined) {
       respond(promptCmd, true, { agentInvoked: true })
-      send({ type: 'prompt_result', id: promptCmd.id, agentInvoked: true })
+      send({ type: 'prompt_result', id: promptCmd.id, agentInvoked: true, sessionSettled: true })
       send({ type: 'agent_end', isTerminal: true, messages: [], willRetry: false })
+      send({ type: 'session_settled' })
     }
     return
   }

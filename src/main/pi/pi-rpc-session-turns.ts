@@ -76,9 +76,10 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     }
     const opId = `pi-turn-${(this.opSeq += 1)}`
     this.activeOp = opId
+    this.activePromptId = null
     this.turn = createPiTurnBuffer()
     try {
-      await conn.prompt(input.text, {
+      const ack = await conn.prompt(input.text, {
         ...(input.images && input.images.length > 0
           ? {
               images: input.images.map((image) => ({
@@ -95,9 +96,21 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
             }
           : {})
       })
+      this.activePromptId = ack.requestId
+      if (!ack.agentInvoked) {
+        // Local-only ack: no agent turn follows, so retire here.
+        if (this.activeOp === opId) {
+          this.translator.settle()
+          this.activeOp = null
+          this.activePromptId = null
+        }
+        this.optionsState.retirePromptsForOp(opId)
+        void this.refreshSessionFile()
+      }
     } catch (error) {
       if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
         this.activeOp = null
+        this.activePromptId = null
         return {
           status: 'rejected',
           reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt'

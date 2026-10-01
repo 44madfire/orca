@@ -257,7 +257,7 @@ describe('Pi settlement lifecycle', () => {
 })
 
 describe('OMP settlement lifecycle', () => {
-  it('clears the turn exactly once on terminal agent_end with a prompt fact', async () => {
+  it('clears the turn exactly once on session idle with a prompt fact', async () => {
     const dir = workspace()
     const backend = backendWithScripts(sessionEnv('omp', dir, 'omp-settle-1'))
     const captured = capturingSink()
@@ -271,10 +271,38 @@ describe('OMP settlement lifecycle', () => {
         facts = drainFacts({ orcaSessionId: 'ses-omp-settle' })
         return facts.length > 0
       })
-      expect(facts).toEqual([{ kind: 'prompt-result', agentInvoked: true }])
+      expect(facts).toEqual([
+        expect.objectContaining({ kind: 'prompt-result', agentInvoked: true, id: expect.any(String) })
+      ])
       await waitFor(() => captured.activity.current === null)
       await expect(dispatch(backend, 'ses-omp-settle', 'again')).resolves.toEqual({ status: 'accepted' })
       await expect(backend.close({ orcaSessionId: 'ses-omp-settle' })).resolves.toBe(true)
+    } finally {
+      rmDir(dir)
+    }
+  })
+
+  it('retires a local-only prompt from the ack alone with no later prompt_result', async () => {
+    const dir = workspace()
+    const backend = backendWithScripts(sessionEnv('omp', dir, 'omp-local-ack-1'))
+    const captured = capturingSink()
+    try {
+      await acquireSession(backend, 'ses-omp-local-ack', dir, 'omp', captured.sink)
+      const drainFacts = mustDrainFacts(backend)
+      drainFacts({ orcaSessionId: 'ses-omp-local-ack' })
+      await expect(dispatch(backend, 'ses-omp-local-ack', 'LOCAL-ONLY hello')).resolves.toEqual({
+        status: 'accepted'
+      })
+      // Retired from the ack alone: no agent turn ever arms.
+      await waitFor(() => (backend.liveTurnId?.({ orcaSessionId: 'ses-omp-local-ack' }) ?? null) === null)
+      // No later prompt_result follows a local-only ack.
+      await sleep(300)
+      expect(drainFacts({ orcaSessionId: 'ses-omp-local-ack' })).toEqual([])
+      // Follow-up dispatches instead of refusing behind already-streaming.
+      await expect(dispatch(backend, 'ses-omp-local-ack', 'hello after local')).resolves.toEqual({
+        status: 'accepted'
+      })
+      await expect(backend.close({ orcaSessionId: 'ses-omp-local-ack' })).resolves.toBe(true)
     } finally {
       rmDir(dir)
     }
@@ -302,6 +330,26 @@ describe('OMP settlement lifecycle', () => {
       await waitFor(() => drainFacts({ orcaSessionId: 'ses-omp-slow' }).length > 0)
       await expect(dispatch(backend, 'ses-omp-slow', 'after settle')).resolves.toEqual({ status: 'accepted' })
       await expect(backend.close({ orcaSessionId: 'ses-omp-slow' })).resolves.toBe(true)
+    } finally {
+      rmDir(dir)
+    }
+  })
+
+  it('holds the turn when terminal agent_end arrives without session idle', async () => {
+    const dir = workspace()
+    const backend = backendWithScripts(sessionEnv('omp', dir, 'omp-noidle-1'))
+    const captured = capturingSink()
+    try {
+      await acquireSession(backend, 'ses-omp-noidle', dir, 'omp', captured.sink)
+      await expect(dispatch(backend, 'ses-omp-noidle', 'hello NO-SESSION')).resolves.toEqual({
+        status: 'accepted'
+      })
+      await sleep(600)
+      await expect(dispatch(backend, 'ses-omp-noidle', 'still here')).resolves.toMatchObject({
+        status: 'rejected',
+        reason: expect.stringContaining('already-streaming')
+      })
+      await expect(backend.close({ orcaSessionId: 'ses-omp-noidle' })).resolves.toBe(true)
     } finally {
       rmDir(dir)
     }

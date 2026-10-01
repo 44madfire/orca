@@ -84,33 +84,68 @@ describe('OMP agent_end contract', () => {
   )
 
   it.each(OMP_RUNTIME_CASES)(
-    'settles a completed %s turn without waiting for ctx.isIdle',
+    'holds a terminal %s agent_end until proven quiescence',
     async (_name, args) => {
-      // Why: absent payload and absent flag are both terminal for a version that cannot send one.
-      for (const event of [{ willContinue: false }, {}, undefined]) {
-        const harness = createAgentStatusExtensionHarness(args)
-        const context = { isIdle: vi.fn(() => false) }
-
-        await harness.callHook('agent_start')
-        await harness.callHook('agent_end', event, context)
-
-        await vi.waitFor(() =>
-          expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start', 'agent_end'])
-        )
-        expect(context.isIdle).not.toHaveBeenCalled()
+      vi.useFakeTimers()
+      try {
+        // Busy runtime: a run yield never posts session idle on its own.
+        const busy = createAgentStatusExtensionHarness(args)
+        const busyCtx = { isIdle: vi.fn(() => false) }
+        await busy.callHook('agent_start')
+        for (const event of [{ willContinue: false }, {}, undefined]) {
+          await busy.callHook('agent_end', event, busyCtx)
+        }
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(postedHookNames(busy.fetchMock)).toEqual(['agent_start'])
+        expect(busyCtx.isIdle).toHaveBeenCalled()
+        // Proven idle: the same run yield now completes the session.
+        const idle = createAgentStatusExtensionHarness(args)
+        const idleCtx = { isIdle: vi.fn(() => true) }
+        await idle.callHook('agent_start')
+        await idle.callHook('agent_end', { willContinue: false }, idleCtx)
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(postedHookNames(idle.fetchMock)).toEqual(['agent_start', 'agent_end'])
+        expect(idleCtx.isIdle).toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
       }
     }
   )
 
-  it('settles a later terminal OMP agent_end after a continuation', async () => {
+  it.each(OMP_RUNTIME_CASES)(
+    'settles %s on session_settled even when the runtime reports busy',
+    async (_name, args) => {
+      const harness = createAgentStatusExtensionHarness(args)
+      const context = { isIdle: vi.fn(() => false) }
+      await harness.callHook('agent_start')
+      await harness.callHook('session_settled', {}, context)
+      await vi.waitFor(() =>
+        expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start', 'agent_end'])
+      )
+    }
+  )
+
+  it('defers OMP session_settled while background work remains', async () => {
+    const harness = createAgentStatusExtensionHarness({ kind: 'omp' })
+    harness.emitPiEvent('task:subagent:lifecycle', { id: 'child-1', status: 'started' })
+    await harness.callHook('agent_start')
+    await harness.callHook('session_settled', {}, { isIdle: () => true })
+    expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start'])
+    harness.emitPiEvent('task:subagent:lifecycle', { id: 'child-1', status: 'completed' })
+    await vi.waitFor(() =>
+      expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start', 'agent_end'])
+    )
+  })
+
+  it('settles a later OMP session_settled after a continuation', async () => {
     const harness = createAgentStatusExtensionHarness({ kind: 'omp' })
     const context = { isIdle: vi.fn(() => false) }
-
     await harness.callHook('agent_start')
     await harness.callHook('agent_end', { willContinue: true }, context)
     expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start'])
-
     await harness.callHook('agent_end', { willContinue: false }, context)
+    expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start'])
+    await harness.callHook('session_settled', {}, context)
     await vi.waitFor(() =>
       expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start', 'agent_end'])
     )

@@ -2,7 +2,9 @@
 // 44madfire/orca-pi `packages/pi-rpc/src/connection.ts`, MIT; see
 // `pi-rpc-connection-state.ts` for the split contract).
 //
-// Orca-side adaptations in this file: none (thin `request()` wrappers).
+// Orca-side adaptations in this file: `prompt()` returns its ack metadata
+// (`requestId` plus `agentInvoked`) so the driver can retire local-only
+// turns from the response alone and correlate later `prompt_result` by id.
 
 import { PiRpcConnectionRequests } from "./pi-rpc-connection-requests";
 import type { PiRpcRequestOptions } from "./pi-rpc-connection-state";
@@ -23,12 +25,19 @@ import type {
   PiTreeData,
 } from "./pi-wire-protocol";
 
+export type PiPromptAck = {
+  readonly requestId: string;
+  readonly agentInvoked: boolean;
+};
+
 export abstract class PiRpcConnectionCommands extends PiRpcConnectionRequests {
 
   /**
    * Queue a user turn. Resolves on *accept* (`success: true`), not on
    * completion — turn completion is observed through provider events
    * (`agent_settled` for Pi, terminal `agent_end` for OMP; see #25).
+   * Returns the ack id plus `data.agentInvoked` (absent means agent-turn):
+   * OMP local-only (`false`) completes here with no later `prompt_result`.
    * Throws `rejected` when Pi is already streaming without a
    * `streamingBehavior` (no state changed); throws ambiguous errors on
    * transport failure (re-read state before retrying).
@@ -36,17 +45,26 @@ export abstract class PiRpcConnectionCommands extends PiRpcConnectionRequests {
   async prompt(
     message: string,
     opts: { images?: readonly PiImageAttachment[]; streamingBehavior?: PiStreamingBehavior } & PiRpcRequestOptions = {},
-  ): Promise<void> {
+  ): Promise<PiPromptAck> {
     const { images, streamingBehavior, timeoutMs } = opts;
-    await this.request(
+    const requestId = this.freshId();
+    const res = await this.requestRaw(
       {
         type: "prompt",
+        id: requestId,
         message,
         ...(images !== undefined ? { images: [...images] } : {}),
         ...(streamingBehavior !== undefined ? { streamingBehavior } : {}),
       },
       timeoutMs !== undefined ? { timeoutMs } : {},
     );
+    const data: unknown = res.data;
+    let agentInvoked = true;
+    if (typeof data === "object" && data !== null && "agentInvoked" in data) {
+      const flag: unknown = data.agentInvoked;
+      agentInvoked = flag !== false;
+    }
+    return { requestId, agentInvoked };
   }
 
 

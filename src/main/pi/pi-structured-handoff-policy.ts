@@ -21,9 +21,12 @@ export type PiHandoffQuiesceDecision =
   | { kind: 'refuse-busy'; reason: string }
   | { kind: 'refuse-prompt'; reason: string }
 
+// hasBackgroundWork covers agent-owned work that can wake OMP after a run yield.
+// Absent stays false so older callers keep their turn/prompt contract.
 export function decidePiHandoffQuiesce(input: {
   hasActiveTurn: boolean
   hasPendingPrompt: boolean
+  hasBackgroundWork?: boolean
   mode: 'now' | 'after-turn' | 'stop-turn'
   direction: 'to-tui' | 'to-native'
 }): PiHandoffQuiesceDecision {
@@ -31,6 +34,12 @@ export function decidePiHandoffQuiesce(input: {
     return {
       kind: 'refuse-prompt',
       reason: 'Resolve the pending question or approval before switching.'
+    }
+  }
+  if (input.hasBackgroundWork === true) {
+    return {
+      kind: 'refuse-busy',
+      reason: 'Background work can still wake the session; wait for session idle.'
     }
   }
   if (!input.hasActiveTurn) {

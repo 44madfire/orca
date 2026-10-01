@@ -308,10 +308,9 @@ describe('OMP extras stay bounded and non-blocking', () => {
       // No new UI type was created for the extras: zero prompt rows.
       expect(promptRows(rows)).toHaveLength(0)
       // The turn itself still settled through the normal dialect frames.
-      expect(drain?.({ orcaSessionId: sessionId })).toContainEqual({
-        kind: 'prompt-result',
-        agentInvoked: true
-      })
+      expect(drain?.({ orcaSessionId: sessionId })).toContainEqual(
+        expect.objectContaining({ kind: 'prompt-result', agentInvoked: true })
+      )
       await expect(backend.close({ orcaSessionId: sessionId })).resolves.toBe(true)
     } finally {
       await backend.close({ orcaSessionId: sessionId }).catch(() => undefined)

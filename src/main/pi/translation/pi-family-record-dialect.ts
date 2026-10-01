@@ -1,10 +1,10 @@
-// Pi-family streaming dialect (PIF-5, 44madfire/orca#26).
+// Pi-family streaming dialect (PIF-5, 44madfire/orca#26; settlement revised per #21).
 //
 // Small provider-aware normalization over the shared Pi record mapper. The
 // common message/reasoning/tool semantics stay in `pi-record-mapping.ts` and
 // `pi-turn-translator.ts`; only genuine lifecycle differences live here:
-// terminal settlement (the flavor owns the boundary, never a hard-coded
-// `agent_settled` check) and bounded OMP-only async facts.
+// whole-session idle (the flavor owns the boundary, never a hard-coded check),
+// OMP run yields draining as turn boundaries, and bounded OMP-only async facts.
 //
 // OMP extras policy: `prompt_result` and `available_commands_update` are
 // facts for their owning subsystems (#25 dispatch correlation, #28 command
@@ -19,8 +19,9 @@ import { mapPiRecordToSessionEvents } from './pi-record-mapping'
 import type { PiSessionEvent } from './pi-session-events'
 
 /** Handoff facts for owning subsystems; journal rows never carry these. */
+// id/sessionSettled consume the BLOCK-1 correlation shape; absent stays unsettled.
 export type PiFamilyPromptFact =
-  | { kind: 'prompt-result'; agentInvoked: boolean }
+  | { kind: 'prompt-result'; agentInvoked: boolean; id?: string; sessionSettled?: boolean }
   | { kind: 'commands-update'; count: number }
 
 const MAX_PI_FAMILY_FACTS = 128
@@ -51,12 +52,20 @@ export class PiFamilyFactTray {
  * no agent turn expected (#25); an absent field stays agent-expected. Counts
  * only, never payloads, so extras stay bounded and secret-safe.
  */
+// id/sessionSettled ride along for the settlement predicate; never payload bytes.
 export function extractPiFamilyRecordFact(
   record: Record<string, unknown>
 ): PiFamilyPromptFact | null {
   const type = record['type']
   if (type === 'prompt_result') {
-    return { kind: 'prompt-result', agentInvoked: record['agentInvoked'] !== false }
+    const id = record['id']
+    const sessionSettled = record['sessionSettled']
+    return {
+      kind: 'prompt-result',
+      agentInvoked: record['agentInvoked'] !== false,
+      ...(typeof id === 'string' && id !== '' ? { id } : {}),
+      ...(sessionSettled === true ? { sessionSettled: true as const } : {})
+    }
   }
   if (type === 'available_commands_update') {
     const commands = record['commands']
@@ -67,11 +76,12 @@ export function extractPiFamilyRecordFact(
 
 /**
  * Map one Pi-family RPC record to shared session events for `provider`.
- * Shared shapes pass through untouched; terminal settlement resolves through
- * the flavor (Pi settles on `agent_settled`, OMP on `agent_end` with
- * `isTerminal !== false`); provider errors become bounded generic failures
- * that never echo payload bytes. OMP extras map to `[]` here; their facts
- * surface via `extractPiFamilyRecordFact`.
+ * Shared shapes pass through untouched; whole-session idle resolves through
+ * the flavor (Pi `agent_settled`, OMP `session_settled` or correlated
+ * `prompt_result` sessionSettled); OMP `agent_end` terminal drains as a run
+ * turn boundary, never session idle. Provider errors become bounded generic
+ * failures that never echo payload bytes. Remaining OMP extras map to `[]`;
+ * their facts surface via `extractPiFamilyRecordFact`.
  */
 export function mapPiFamilyRecordToSessionEvents(
   record: Record<string, unknown>,
@@ -85,10 +95,18 @@ export function mapPiFamilyRecordToSessionEvents(
   if (base.length > 0) {
     return base
   }
+  if (provider === 'omp' && typeof type === 'string' && type === 'agent_end') {
+    if (record['isTerminal'] === false) {
+      return base
+    }
+    return [{ type: 'turn_end', stopReason: 'stop' }]
+  }
   if (
     resolvePiFamilyFlavor(provider).isSettled({
       type: typeof type === 'string' ? type : '',
-      isTerminal: record['isTerminal']
+      isTerminal: record['isTerminal'],
+      id: record['id'],
+      sessionSettled: record['sessionSettled']
     })
   ) {
     const willRetry = record['willRetry'] === true

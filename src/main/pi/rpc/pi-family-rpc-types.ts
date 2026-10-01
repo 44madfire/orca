@@ -122,18 +122,21 @@ export const PI_FAMILY_OMP_ONLY_COMMANDS: readonly string[] = [
  * Async server records the transport forwards untouched to subscribers.
  * Shared streaming/history frames flow here; OMP extras (command updates,
  * host tools/URI, subagent frames, notices, `prompt_result`, unknown future
- * records) stay observable and ignorable. Terminal settlement differs
- * (`agent_settled` vs `agent_end` with `isTerminal !== false`) and belongs
+ * records) stay observable and ignorable. Whole-session idle differs
+ * (Pi `agent_settled` vs OMP `session_settled` or correlated `prompt_result`
+ * sessionSettled; OMP `agent_end` terminal is one run yielding) and belongs
  * to the lifecycle dialect, never to this transport.
  */
 export type PiFamilyServerRecord = PiServerEvent | OmpReadyFrame
 
 /** OMP async frames tolerated without interpretation (see `docs/rpc.md`). */
+// session_settled is whole-session idle; agent_end terminal is one run yielding.
 export const PI_FAMILY_OMP_TOLERATED_EVENTS: readonly string[] = [
   'ready',
   'rpc_chunk',
   'available_commands_update',
   'prompt_result',
+  'session_settled',
   'host_tool_call',
   'host_tool_cancel',
   'host_tool_update',

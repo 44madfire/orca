@@ -9,6 +9,15 @@ import {
 describe('Pi handoff quiesce policy', () => {
   it('proceeds when idle and refuses busy `now` without killing the turn', () => {
     expect(
+      decidePiHandoffQuiesce({
+        hasActiveTurn: false,
+        hasPendingPrompt: false,
+        hasBackgroundWork: true,
+        mode: 'now',
+        direction: 'to-tui'
+      })
+    ).toMatchObject({ kind: 'refuse-busy' })
+    expect(
       decidePiHandoffQuiesce({ hasActiveTurn: false, hasPendingPrompt: false, mode: 'now', direction: 'to-tui' })
     ).toEqual({ kind: 'proceed' })
     expect(

@@ -621,7 +621,7 @@ describe('PIF-9 OMP lifecycle dialect over scripted children', () => {
     }
   })
 
-  it('a non-terminal agent_end keeps the turn live; the terminal one settles it', async () => {
+  it('a non-terminal agent_end keeps the turn live; session idle settles it', async () => {
     const dir = workspace()
     const stack = buildStack(dir, sessionEnv('omp', dir, 'omp-pif9-slow-1'))
     const sessionId = 'ses-omp-pif9-slow'

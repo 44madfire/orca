@@ -96,6 +96,7 @@ export abstract class PiRpcSessionLifecycle {
   protected leafId: string | null = null
   protected sessionFile: string | null = null
   protected activeOp: string | null = null
+  protected activePromptId: string | null = null
   protected sink: StructuredAgentSessionEventSink | null = null
   protected pendingImmediate: { opId: string; acked: boolean; accept: () => void } | null = null
   protected closing = false
@@ -269,6 +270,7 @@ export abstract class PiRpcSessionLifecycle {
       this.optionsState.retireAllPrompts()
       this.translator.resetAll()
       this.activeOp = null
+      this.activePromptId = null
       this.pendingImmediate = null
       const result = await conn.close(graceMs ?? this.closeGrace)
       const exitObserved = result.exitCode !== null || result.signal !== null
