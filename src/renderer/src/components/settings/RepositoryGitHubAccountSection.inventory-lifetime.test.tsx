@@ -26,10 +26,6 @@ vi.mock('../../store', () => {
 })
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
-  getActiveRuntimeTarget: (settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null) =>
-    settings?.activeRuntimeEnvironmentId
-      ? { kind: 'environment', environmentId: settings.activeRuntimeEnvironmentId }
-      : { kind: 'local' },
   callRuntimeRpc: vi.fn()
 }))
 

@@ -381,7 +381,6 @@
 1 src/renderer/src/lib/worktree-sort-order-host-split.ts
 1 src/renderer/src/runtime/close-mirrored-editor-tab.ts
 1 src/renderer/src/runtime/local-structured-session-tabs-sync/snapshot-apply.ts
-1 src/renderer/src/runtime/runtime-client-target.ts
 17 src/renderer/src/runtime/runtime-jira-client.ts
 2 src/renderer/src/runtime/runtime-jira-summary-client.ts
 1 src/renderer/src/runtime/runtime-jira-target.ts
@@ -415,7 +414,6 @@
 3 src/renderer/src/store/project-groups/project-group-mutations.ts
 1 src/renderer/src/store/repos/all-host-repo-catalog-actions.ts
 1 src/renderer/src/store/repos/converted-ssh-browser-pages.ts
-2 src/renderer/src/store/repos/owner-routing.ts
 2 src/renderer/src/store/repos/repo-add-actions.ts
 1 src/renderer/src/store/repos/repo-update.ts
 1 src/renderer/src/store/repos/runtime-repo-catalog-actions.ts
@@ -484,7 +482,6 @@
 2 src/renderer/src/store/slices/worktrees/listing/fetch-worktrees.ts
 1 src/renderer/src/store/slices/worktrees/listing/fetched-worktree-merge.ts
 2 src/renderer/src/store/slices/worktrees/listing/worktree-host-ownership.ts
-3 src/renderer/src/store/slices/worktrees/listing/worktree-owner-settings.ts
 2 src/renderer/src/store/slices/worktrees/metadata/update-worktree-meta.ts
 1 src/renderer/src/store/slices/worktrees/metadata/worktree-lineage-actions.ts
 3 src/renderer/src/store/slices/worktrees/metadata/worktree-lineage-host-merge.ts
