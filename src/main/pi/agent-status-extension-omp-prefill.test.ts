@@ -15,7 +15,7 @@ describe('OMP prefill through the explicitly loaded status extension', () => {
     h.reload()
     await h.callHook('session_start', {}, { ui: { setEditorText } })
     expect(setEditorText).toHaveBeenCalledTimes(1)
-    // Why: the same session_start also advertises the OMP startup capability now.
+    // Why: each session_start advertises capability; prefill is consumed only once.
     expect(h.fetchMock).toHaveBeenCalledTimes(3)
   })
 

@@ -53,8 +53,7 @@ export function renewRuntimeMobileAgentStatusFromPtyTitle(
     paneKey: status.paneKey,
     stateHistory: [],
     ...(status.agentType ? { agentType: status.agentType } : {}),
-    // Why: the model + switch command describe the session, not the turn — an idle
-    // title repaint must not strip the OMP picker's enablement (#26191).
+    // Why: model-switch capability belongs to the session; idle repaints must keep it (#26191).
     ...(status.model ? { model: status.model } : {}),
     ...(status.modelSwitchCommand ? { modelSwitchCommand: status.modelSwitchCommand } : {}),
     ...(status.terminalHandle ? { terminalHandle: status.terminalHandle } : {}),

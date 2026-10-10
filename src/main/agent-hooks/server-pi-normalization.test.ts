@@ -66,8 +66,7 @@ describe('Pi hook normalization', () => {
       }),
       'production'
     )
-    // Why: a fresh OMP chat advertises its installed switch before the first prompt;
-    // done + sessionBoundary keeps completion consumers out of it (#26191).
+    // Why: sessionBoundary suppresses completion side effects for startup (#26191).
     expect(started?.payload).toMatchObject({
       state: 'done',
       sessionBoundary: true,
@@ -80,6 +79,32 @@ describe('Pi hook normalization', () => {
       id: 'omp-startup',
       transcriptPath: '/tmp/omp-startup.jsonl'
     })
+  })
+
+  it('drops the previous turn details on OMP session_start', () => {
+    _internals.normalizeHookPayload(
+      'omp',
+      buildBody({ hook_event_name: 'before_agent_start', prompt: 'old turn' }),
+      'production'
+    )
+    _internals.normalizeHookPayload(
+      'omp',
+      buildBody({ hook_event_name: 'tool_call', tool_name: 'bash' }),
+      'production'
+    )
+    const started = _internals.normalizeHookPayload(
+      'omp',
+      buildBody({
+        hook_event_name: 'session_start',
+        session_id: 'omp-new',
+        session_file: '/tmp/omp-new.jsonl',
+        model: 'deepseek/deepseek-v4-pro',
+        model_switch_command: 'orca-model'
+      }),
+      'production'
+    )
+    expect(started?.payload.prompt).toBe('')
+    expect(started?.payload.toolName).toBeUndefined()
   })
 
   it('model_select re-emits the last OMP status under the new model', () => {

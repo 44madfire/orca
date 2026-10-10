@@ -120,8 +120,6 @@ describe('mobile/paired projection for a pane pending a human answer', () => {
     expect(out?.state).toBe('working')
   })
 
-  // Why: the model + switch command describe the OMP session, not its turn. A stale-turn
-  // retirement must keep the picker's enablement, or every idle repaint disables it (#26191).
   it('keeps the OMP model capability when an idle title retires the turn', () => {
     const hookAt = Date.now() - AGENT_STATUS_STALE_AFTER_MS - 1
     const out = renewFromPtyTitle()(

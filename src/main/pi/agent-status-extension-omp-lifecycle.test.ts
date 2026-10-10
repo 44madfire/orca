@@ -261,7 +261,6 @@ describe('OMP subagent settlement', () => {
     await lifecycle(harness, 'revived', 'started')
     await lifecycle(harness, 'revived', 'completed')
 
-    // Why: session_start advertises the OMP startup capability before the wake.
     expect(postedHookNames(harness.fetchMock)).toEqual([
       'session_start',
       'agent_start',

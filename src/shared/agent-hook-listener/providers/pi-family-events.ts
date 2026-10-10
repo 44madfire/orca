@@ -20,11 +20,11 @@ export function normalizePiCompatibleEvent(
   paneKey: string,
   hookPayload: Record<string, unknown>
 ): ParsedAgentStatusPayload | null {
-  if (agentType !== 'omp' && eventName === 'session_start') {
-    // Why: Pi's session_start fires on TUI open/resume; discard stale turn details, no working row before user activity.
+  if (eventName === 'session_start') {
+    // Why: session_start fires on TUI open/resume/switch; discard stale turn details.
     clearPaneTurnCacheState(state, paneKey)
     // Why: a custom modal can switch sessions before its promise resolves.
-    if (agentType !== 'pi' || hookPayload.ui_prompt_active !== true) {
+    if (agentType !== 'omp' && (agentType !== 'pi' || hookPayload.ui_prompt_active !== true)) {
       return null
     }
   }
@@ -71,9 +71,7 @@ export function normalizePiCompatibleEvent(
     agentType === 'pi' && (eventName === 'ui_prompt_start' || hookPayload.ui_prompt_active === true)
   const isPiUiPromptEnd = agentType === 'pi' && eventName === 'ui_prompt_end'
 
-  // Why: OMP session_start lands as an idle boundary (done + sessionBoundary), the same
-  // shape Claude/Hermes/ZCode use for SessionStart: the pane owns a session and awaits
-  // input, and the post carries the model + model_switch_command the picker reads.
+  // Why: startup enables the model picker without starting a turn or signaling completion.
   const isOmpSessionStart = agentType === 'omp' && eventName === 'session_start'
   let stateName =
     isPiCompatibleAsk || isOmpApprovalRequest
@@ -125,8 +123,7 @@ export function normalizePiCompatibleEvent(
     lastAssistantMessage: snapshot.lastAssistantMessage,
     lastAssistantMessageIsToolOutput: snapshot.lastAssistantMessageIsToolOutput,
     subagents,
-    // Why: the extension ends a run whose session was replaced; that is not a completed turn.
-    // OMP session_start is likewise a boundary: a session owns the pane and awaits input.
+    // Why: neither a replaced-session run end nor a session start is a completed turn.
     ...(isOmpSessionStart || (eventName === 'agent_end' && hookPayload.session_boundary === true)
       ? { sessionBoundary: true }
       : {})
