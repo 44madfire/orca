@@ -261,7 +261,12 @@ describe('OMP subagent settlement', () => {
     await lifecycle(harness, 'revived', 'started')
     await lifecycle(harness, 'revived', 'completed')
 
-    expect(postedHookNames(harness.fetchMock)).toEqual(['agent_start', 'agent_end'])
+    // Why: session_start advertises the OMP startup capability before the wake.
+    expect(postedHookNames(harness.fetchMock)).toEqual([
+      'session_start',
+      'agent_start',
+      'agent_end'
+    ])
   })
 
   it("ignores children seen by an OMP task session's copy of the extension", async () => {

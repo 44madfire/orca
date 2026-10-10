@@ -54,6 +54,34 @@ describe('Pi hook normalization', () => {
     expect(pi?.payload.model).toBeUndefined()
   })
 
+  it('lands OMP session_start as an idle boundary carrying the model capability', () => {
+    const started = _internals.normalizeHookPayload(
+      'omp',
+      buildBody({
+        hook_event_name: 'session_start',
+        session_id: 'omp-startup',
+        session_file: '/tmp/omp-startup.jsonl',
+        model: 'deepseek/deepseek-v4-pro',
+        model_switch_command: 'orca-model'
+      }),
+      'production'
+    )
+    // Why: a fresh OMP chat advertises its installed switch before the first prompt;
+    // done + sessionBoundary keeps completion consumers out of it (#26191).
+    expect(started?.payload).toMatchObject({
+      state: 'done',
+      sessionBoundary: true,
+      agentType: 'omp',
+      model: 'deepseek/deepseek-v4-pro',
+      modelSwitchCommand: 'orca-model'
+    })
+    expect(started?.providerSession).toEqual({
+      key: 'session_id',
+      id: 'omp-startup',
+      transcriptPath: '/tmp/omp-startup.jsonl'
+    })
+  })
+
   it('model_select re-emits the last OMP status under the new model', () => {
     const started = _internals.normalizeHookPayload(
       'omp',

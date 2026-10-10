@@ -24,6 +24,36 @@ const OMP_RUNTIME_CASES = [
 ] as const
 
 describe('OMP model reporting', () => {
+  it.each(OMP_RUNTIME_CASES)(
+    'advertises the model switch on %s session_start',
+    async (_name, args) => {
+      const harness = createAgentStatusExtensionHarness(args)
+
+      await harness.callHook(
+        'session_start',
+        {},
+        {
+          sessionManager: {
+            getSessionId: () => 'omp-startup',
+            getSessionFile: () => '/tmp/omp-startup.jsonl'
+          },
+          model: DEEPSEEK
+        }
+      )
+      await settled(harness.fetchMock, 1)
+
+      expect(postedPayloads(harness.fetchMock)).toEqual([
+        {
+          hook_event_name: 'session_start',
+          session_id: 'omp-startup',
+          session_file: '/tmp/omp-startup.jsonl',
+          model: 'deepseek/deepseek-v4-pro',
+          model_switch_command: 'orca-model'
+        }
+      ])
+    }
+  )
+
   it.each(OMP_RUNTIME_CASES)('stamps the active model on every %s post', async (_name, args) => {
     const harness = createAgentStatusExtensionHarness(args)
 

@@ -60,7 +60,17 @@ export function getOmpSessionOwnerHandlerSourceLines(): string[] {
     '    })',
     '  }',
     '',
-    "  onStatus('session_start', () => {})",
+    "  onStatus('session_start', (event, ctx) => {",
+    '    // Why: Pi and Prime post their own session_start below, after refreshing',
+    '    // their file-gated resume identity; this post is the OMP startup capability',
+    '    // advertisement (model + model_switch_command) the model picker reads.',
+    '    if (!isOmpRuntime()) return',
+    '    // Why: /reload re-registers the active session mid-turn; posting it would',
+    '    // settle a live spinner as an idle boundary (Pi skips it for the same reason).',
+    "    if (event?.reason === 'reload') return",
+    '    updateRuntimeOmpSessionMetadata(ctx)',
+    "    post('session_start')",
+    '  })',
     ''
   ]
 }
